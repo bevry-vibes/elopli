@@ -73,6 +73,9 @@ keylight power-on --last --all
 keylight info
 ```
 
+`keylight info` also shows the light's own WiFi data: the SSID, the frequency, and the RSSI.
+This is the data source for the WiFi icon and its hover text.
+
 Add `--json` for machine-readable output:
 
 ```sh

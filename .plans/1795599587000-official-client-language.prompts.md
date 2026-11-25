@@ -49,3 +49,15 @@ linux and windows would be good, as I use both, they could share the same base -
 two other functioanlity that the official app provides that we don't yet, but should be added for completeness:
 - rename
 - Power On Behaviour: [Restore Last Used Setting] or [Restore Defaults]
+
+## follow-up prompt 2
+
+I agree rust then is better than zig. So our base is either our of rust or swift.
+
+Swift does have open-source extensions that fill the lack of cross-platform ui - compare the swift open-source ui options with the rust options for windows and fedora, and the native options (that would consume the rust core) for windows and fedora.
+
+The requirements are all must except for apple notarisation.
+
+Note that unlike aural-keyboard, our interface will need to be a proper interface and not just a menubar combobox - so we will need a ui that has cards for each light.
+
+Note the official elgato app also has wifi icons which when hovered over indicate wifi connection, wifi signal strength, and wifi frequency - is this provided by the light? or via macos?

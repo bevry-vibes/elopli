@@ -234,6 +234,23 @@ The response contains the serial number and the network interface address.
 Treat both values as private data.
 This client discards them.
 
+### WiFi details
+
+`wifi-info` is the light's own view of its network.
+It is not the host's WiFi state.
+
+| Field | Meaning |
+| --- | --- |
+| `ssid` | The network that the light joined |
+| `frequencyMHz` | 2400 or 5000 |
+| `rssi` | Signal strength in dBm |
+
+The client can show a WiFi icon for each light.
+The hover text can show the SSID, the frequency, and the RSSI.
+A request failure means the light is offline.
+The API does not return the light's IP address.
+The client knows the address from the registry or from mDNS.
+
 ### Set the display name
 
 ```http
