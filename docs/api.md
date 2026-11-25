@@ -113,7 +113,7 @@ The response is the complete new state.
 {"numberOfLights":1,"lights":[{"on":0,"brightness":50,"temperature":267}]}
 ```
 
-The `lights` array must contain exactly one object.
+The device uses the first object in the `lights` array and ignores the rest.
 An empty array returns HTTP 400.
 An extra top-level field is ignored.
 
@@ -243,8 +243,9 @@ The light can drop off the network while it is off.
 The off state can last for minutes.
 A client that must turn the light on again needs a retry window.
 
-A host with two network interfaces on the same subnet can make the route unstable.
-Bind the client to one interface when this happens.
+macOS Local Network Privacy can block a non-Apple process.
+A process launched from Terminal inherits the Terminal grant.
+A CLI that runs from `launchd` or a bundled app needs its own grant.
 
 ## Verified devices
 
