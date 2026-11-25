@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use elopli_core::{
 	Config, Device, ElopliClient, ElopliError, LightState, PowerOnBehavior, PulseConfig, PulseEase,
-	PulseTarget, Result, TransportMode, Update, config_path, discover, kelvin_to_mired,
+	Result, SweepConfig, TransportMode, Update, config_path, discover, kelvin_to_mired,
 	validate_brightness, validate_display_name, validate_temperature, validate_warmth,
 };
 use rayon::prelude::*;
@@ -33,21 +33,6 @@ impl From<PulseEaseArg> for PulseEase {
 			PulseEaseArg::EaseIn => Self::EaseIn,
 			PulseEaseArg::EaseOut => Self::EaseOut,
 			PulseEaseArg::EaseInOut => Self::EaseInOut,
-		}
-	}
-}
-
-#[derive(Debug, Clone, Copy, ValueEnum)]
-enum PulseTargetArg {
-	Brightness,
-	Temperature,
-}
-
-impl From<PulseTargetArg> for PulseTarget {
-	fn from(value: PulseTargetArg) -> Self {
-		match value {
-			PulseTargetArg::Brightness => Self::Brightness,
-			PulseTargetArg::Temperature => Self::Temperature,
 		}
 	}
 }
@@ -126,8 +111,10 @@ enum Command {
 	Rename(RenameArgs),
 	#[command(about = "read or set the power-on behaviour")]
 	PowerOn(PowerOnArgs),
-	#[command(about = "pulse brightness or temperature and restore the original values")]
+	#[command(about = "pulse brightness and restore the original values")]
 	Pulse(PulseArgs),
+	#[command(about = "sweep temperature across the full range and restore the original values")]
+	Sweep(SweepArgs),
 	#[command(about = "flash one or more lights")]
 	Identify(TargetArgs),
 	#[command(about = "read product and network details")]
@@ -280,10 +267,10 @@ struct PulseArgs {
 	count: u32,
 	#[arg(
 		long,
-		default_value_t = 600,
+		default_value_t = 3000,
 		value_parser = clap::value_parser!(u32).range(50..=10000),
 		value_name = "MS",
-		help = "duration of the entire pulse animation in milliseconds (default 600)"
+		help = "duration of the entire pulse animation in milliseconds (default 3000)"
 	)]
 	duration: u32,
 	#[arg(
@@ -295,19 +282,48 @@ struct PulseArgs {
 	ease: PulseEaseArg,
 	#[arg(
 		long,
-		value_enum,
-		default_value_t = PulseTargetArg::Brightness,
-		help = "property to pulse (default brightness)"
-	)]
-	target: PulseTargetArg,
-	#[arg(
-		long,
 		default_value_t = 100,
 		value_parser = clap::value_parser!(u8).range(0..=100),
 		value_name = "PERCENT",
 		help = "peak value in percent (default 100)"
 	)]
 	value: u8,
+}
+
+#[derive(Debug, Args)]
+struct SweepArgs {
+	#[command(flatten)]
+	targets: TargetArgs,
+	#[arg(
+		long,
+		default_value_t = 1,
+		value_parser = clap::value_parser!(u32).range(1..=20),
+		help = "number of warm-to-cool sweeps (default 1)"
+	)]
+	count: u32,
+	#[arg(
+		long,
+		default_value_t = 3000,
+		value_parser = clap::value_parser!(u32).range(100..=60000),
+		value_name = "MS",
+		help = "duration of the entire sweep animation in milliseconds (default 3000)"
+	)]
+	duration: u32,
+	#[arg(
+		long,
+		value_enum,
+		default_value_t = PulseEaseArg::Linear,
+		help = "easing curve (default linear)"
+	)]
+	ease: PulseEaseArg,
+	#[arg(
+		long,
+		default_value_t = 0,
+		value_parser = clap::value_parser!(u8).range(0..=100),
+		value_name = "PERCENT",
+		help = "brightness to hold for the sweep; 0 keeps the current brightness"
+	)]
+	brightness: u8,
 }
 
 #[derive(Debug, Args)]
@@ -519,8 +535,30 @@ fn pulse_record(device: &Device, settings: &Settings, config: PulseConfig) -> Va
 			record.insert("pulse_count".into(), json!(config.count));
 			record.insert("pulse_duration_ms".into(), json!(config.duration_ms));
 			record.insert("pulse_ease".into(), json!(config.ease.label()));
-			record.insert("pulse_target".into(), json!(config.target.label()));
 			record.insert("pulse_value".into(), json!(config.value));
+			Value::Object(record)
+		}
+		Err(error) => error_record(device, &error),
+	}
+}
+
+fn sweep_record(device: &Device, settings: &Settings, config: SweepConfig) -> Value {
+	let client = client(device, settings);
+	match client.sweep(config) {
+		Ok(outcome) => {
+			let state = outcome.state().clone();
+			let mut record = base(device);
+			record.insert("reachable".into(), json!(true));
+			record.insert("state".into(), json!(if state.on { "on" } else { "off" }));
+			merge(&mut record, state.to_json());
+			record.insert("sweep_completed".into(), json!(outcome.completed()));
+			if let Some(reason) = outcome.cancellation() {
+				record.insert("sweep_cancelled".into(), json!(reason.label()));
+			}
+			record.insert("sweep_count".into(), json!(config.count));
+			record.insert("sweep_duration_ms".into(), json!(config.duration_ms));
+			record.insert("sweep_ease".into(), json!(config.ease.label()));
+			record.insert("sweep_brightness".into(), json!(config.brightness));
 			Value::Object(record)
 		}
 		Err(error) => error_record(device, &error),
@@ -892,7 +930,7 @@ fn print_pulses(records: &[Value]) {
 			.and_then(Value::as_str)
 			.unwrap_or("");
 		println!(
-			"{name}: {verb} {}× over {} ms ({} {}, peak {}%){}; final {}, brightness {}%, warmth {}%",
+			"{name}: {verb} {}× over {} ms ({} easing, peak {}%){}; final {}, brightness {}%, warmth {}%",
 			record
 				.get("pulse_count")
 				.and_then(Value::as_u64)
@@ -906,13 +944,69 @@ fn print_pulses(records: &[Value]) {
 				.and_then(Value::as_str)
 				.unwrap_or("?"),
 			record
-				.get("pulse_target")
-				.and_then(Value::as_str)
-				.unwrap_or("?"),
-			record
 				.get("pulse_value")
 				.and_then(Value::as_u64)
 				.unwrap_or(0),
+			if reason.is_empty() {
+				String::new()
+			} else {
+				format!(", {reason}")
+			},
+			record.get("state").and_then(Value::as_str).unwrap_or("?"),
+			record
+				.get("brightness")
+				.and_then(Value::as_u64)
+				.unwrap_or(0),
+			record.get("warmth").and_then(Value::as_u64).unwrap_or(0)
+		);
+	}
+}
+
+fn print_sweeps(records: &[Value]) {
+	for record in records {
+		let name = record.get("name").and_then(Value::as_str).unwrap_or("?");
+		if record.get("reachable").and_then(Value::as_bool) != Some(true) {
+			println!(
+				"{name}: offline ({})",
+				record
+					.get("error")
+					.and_then(Value::as_str)
+					.unwrap_or("unreachable")
+			);
+			continue;
+		}
+		if let Some(error) = record.get("error").and_then(Value::as_str) {
+			println!("{name}: failed ({error})");
+			continue;
+		}
+		let completed = record
+			.get("sweep_completed")
+			.and_then(Value::as_bool)
+			.unwrap_or(true);
+		let verb = if completed { "swept" } else { "sweep stopped" };
+		let reason = record
+			.get("sweep_cancelled")
+			.and_then(Value::as_str)
+			.unwrap_or("");
+		let brightness = match record.get("sweep_brightness").and_then(Value::as_u64) {
+			Some(value) if value > 0 => format!("brightness {value}%"),
+			_ => "brightness unchanged".into(),
+		};
+		println!(
+			"{name}: {verb} {}× over {} ms ({} easing, {}){}; final {}, brightness {}%, warmth {}%",
+			record
+				.get("sweep_count")
+				.and_then(Value::as_u64)
+				.unwrap_or(0),
+			record
+				.get("sweep_duration_ms")
+				.and_then(Value::as_u64)
+				.unwrap_or(0),
+			record
+				.get("sweep_ease")
+				.and_then(Value::as_str)
+				.unwrap_or("?"),
+			brightness,
 			if reason.is_empty() {
 				String::new()
 			} else {
@@ -1320,7 +1414,6 @@ fn run(cli: Cli) -> Result<u8> {
 				count: args.count,
 				duration_ms: args.duration,
 				ease: args.ease.into(),
-				target: args.target.into(),
 				value: args.value,
 			};
 			let devices = resolve_devices(&args.targets, &config, false)?;
@@ -1331,6 +1424,24 @@ fn run(cli: Cli) -> Result<u8> {
 				print_json(&Value::Array(records.clone()));
 			} else {
 				print_pulses(&records);
+			}
+			Ok(exit_code(&records))
+		}
+		Command::Sweep(args) => {
+			let sweep_config = SweepConfig {
+				count: args.count,
+				duration_ms: args.duration,
+				ease: args.ease.into(),
+				brightness: (args.brightness > 0).then_some(args.brightness),
+			};
+			let devices = resolve_devices(&args.targets, &config, false)?;
+			let records = parallel(&devices, |device| {
+				sweep_record(device, &settings, sweep_config)
+			});
+			if settings.json {
+				print_json(&Value::Array(records.clone()));
+			} else {
+				print_sweeps(&records);
 			}
 			Ok(exit_code(&records))
 		}

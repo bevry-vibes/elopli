@@ -293,7 +293,6 @@ final class AppModel: ObservableObject {
 		count: Int,
 		durationMs: Int,
 		ease: FfiPulseEase,
-		target: FfiPulseTarget,
 		value: Int
 	) async -> FfiPulseOutcome? {
 		pulsingDevices.insert(device.name)
@@ -308,8 +307,35 @@ final class AppModel: ObservableObject {
 					count: UInt32(count),
 					durationMs: UInt32(durationMs),
 					ease: ease,
-					target: target,
 					value: UInt8(value)
+				)
+			}.value
+		} catch {
+			setError(device, error)
+			return nil
+		}
+	}
+
+	func sweep(
+		_ device: LightDevice,
+		count: Int,
+		durationMs: Int,
+		ease: FfiPulseEase,
+		brightness: Int
+	) async -> FfiPulseOutcome? {
+		pulsingDevices.insert(device.name)
+		defer {
+			pulsingDevices.remove(device.name)
+			Task { await refresh() }
+		}
+		do {
+			let client = try Self.client(for: device)
+			return try await Task.detached {
+				try client.sweep(
+					count: UInt32(count),
+					durationMs: UInt32(durationMs),
+					ease: ease,
+					brightness: brightness > 0 ? UInt8(brightness) : nil
 				)
 			}.value
 		} catch {

@@ -365,30 +365,11 @@ enum PulseEaseChoice: String, AppEnum {
 	}
 }
 
-enum PulseTargetChoice: String, AppEnum {
-	case brightness
-	case temperature
-
-	static var typeDisplayRepresentation = TypeDisplayRepresentation(
-		name: "Pulse Target"
-	)
-	static var caseDisplayRepresentations: [Self: DisplayRepresentation] = [
-		.brightness: "Brightness",
-		.temperature: "Temperature",
-	]
-
-	var value: FfiPulseTarget {
-		switch self {
-		case .brightness: return .brightness
-		case .temperature: return .temperature
-		}
-	}
-}
 
 struct PulseIntent: AppIntent {
 	static var title: LocalizedStringResource = "Pulse Light"
 	static var description = IntentDescription(
-		"Pulse brightness or temperature from a peak to the minimum, then restore the original values."
+		"Pulse brightness from a peak to the minimum, then restore the original values."
 	)
 	static var displayRepresentation: DisplayRepresentation {
 		DisplayRepresentation(
@@ -413,19 +394,16 @@ struct PulseIntent: AppIntent {
 	@Parameter(
 		title: "Duration",
 		description: "Duration of the entire pulse animation in milliseconds.",
-		default: 600
+		default: 3000
 	)
 	var durationMs: Int
 
 	@Parameter(title: "Ease", default: .linear)
 	var ease: PulseEaseChoice
 
-	@Parameter(title: "Target", default: .brightness)
-	var target: PulseTargetChoice
-
 	@Parameter(
 		title: "Peak Value",
-		description: "Peak percentage for the selected properties.",
+		description: "Peak brightness percentage.",
 		default: 100
 	)
 	var value: Int
@@ -443,7 +421,6 @@ struct PulseIntent: AppIntent {
 					count: count,
 					durationMs: durationMs,
 					ease: ease.value,
-					target: target.value,
 					value: value
 				)
 			}
@@ -458,6 +435,79 @@ struct PulseIntent: AppIntent {
 		}
 		return .result(
 			dialog: "Pulsed \(IntentSupport.names(devices))"
+		)
+	}
+}
+
+struct SweepLightIntent: AppIntent {
+	static var title: LocalizedStringResource = "Sweep Light"
+	static var description = IntentDescription(
+		"Sweep temperature across the full range, then restore the original values."
+	)
+	static var displayRepresentation: DisplayRepresentation {
+		DisplayRepresentation(
+			title: "Sweep Light",
+			image: DisplayRepresentation.Image(systemName: "arrow.left.and.right")
+		)
+	}
+
+	@Parameter(
+		title: "Lights",
+		description: "Select one or more lights, or All Lights."
+	)
+	var lights: [ElopliLightEntity]
+
+	@Parameter(
+		title: "Count",
+		description: "Number of warm-to-cool sweeps.",
+		default: 1
+	)
+	var count: Int
+
+	@Parameter(
+		title: "Duration",
+		description: "Duration of the entire sweep animation in milliseconds.",
+		default: 3000
+	)
+	var durationMs: Int
+
+	@Parameter(title: "Ease", default: .linear)
+	var ease: PulseEaseChoice
+
+	@Parameter(
+		title: "Brightness",
+		description: "Brightness to hold during the sweep. 0 keeps the current brightness.",
+		default: 0
+	)
+	var brightness: Int
+
+	func perform() async throws -> some IntentResult & ProvidesDialog {
+		let devices = try IntentSupport.devices(from: lights)
+		let count = UInt32(max(1, min(20, count)))
+		let durationMs = UInt32(max(100, min(60_000, durationMs)))
+		let brightness = max(0, min(100, brightness))
+		var stopped = 0
+		for device in devices {
+			let client = try IntentSupport.client(for: device)
+			let outcome = try await IntentSupport.run {
+				try client.sweep(
+					count: count,
+					durationMs: durationMs,
+					ease: ease.value,
+					brightness: brightness > 0 ? UInt8(brightness) : nil
+				)
+			}
+			if !outcome.completed {
+				stopped += 1
+			}
+		}
+		if stopped > 0 {
+			return .result(
+				dialog: "Stopped sweeping \(IntentSupport.names(devices)) because the light changed or another action took over."
+			)
+		}
+		return .result(
+			dialog: "Swept \(IntentSupport.names(devices))"
 		)
 	}
 }

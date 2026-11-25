@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use elopli_core::{
-	ElopliClient, PowerOnBehavior, PulseCancellation, PulseConfig, PulseEase, PulseTarget,
+	ElopliClient, PowerOnBehavior, PulseCancellation, PulseConfig, PulseEase, SweepConfig,
 	TransportMode, Update, validate_brightness, validate_display_name, validate_temperature,
 	validate_warmth,
 };
@@ -268,7 +268,6 @@ fn pulse_restores_the_original_state() {
 			count: 1,
 			duration_ms: 100,
 			ease: PulseEase::Linear,
-			target: PulseTarget::Brightness,
 			value: 80,
 		})
 		.unwrap();
@@ -294,7 +293,6 @@ fn actions_cancel_a_running_pulse_and_win() {
 				count: 20,
 				duration_ms: 1_000,
 				ease: PulseEase::Linear,
-				target: PulseTarget::Brightness,
 				value: 100,
 			})
 			.unwrap()
@@ -325,7 +323,6 @@ fn pulse_stops_and_preserves_an_external_change() {
 				count: 5,
 				duration_ms: 1_000,
 				ease: PulseEase::Linear,
-				target: PulseTarget::Brightness,
 				value: 100,
 			})
 			.unwrap()
@@ -364,7 +361,6 @@ fn pulse_runs_peak_to_minimum_once_per_count() {
 			count: 3,
 			duration_ms: 100,
 			ease: PulseEase::Linear,
-			target: PulseTarget::Brightness,
 			value: 80,
 		})
 		.unwrap();
@@ -377,6 +373,61 @@ fn pulse_runs_peak_to_minimum_once_per_count() {
 		.filter(|update| update["lights"][0]["brightness"].as_u64() == Some(2))
 		.count();
 	assert_eq!(minima, 3);
+	assert_eq!(client.state().unwrap(), original);
+}
+
+#[test]
+fn sweep_covers_cool_and_warm_and_restores() {
+	let (port, state) = start_server();
+	let client = client(port);
+	let original = client.state().unwrap();
+
+	let result = client
+		.sweep(SweepConfig {
+			count: 1,
+			duration_ms: 100,
+			ease: PulseEase::Linear,
+			brightness: None,
+		})
+		.unwrap();
+	assert!(result.completed());
+	assert_eq!(result.state(), &original);
+
+	let updates = state.lock().unwrap().updates.clone();
+	assert!(
+		updates
+			.iter()
+			.any(|update| update["lights"][0]["temperature"].as_u64() == Some(143))
+	);
+	assert!(
+		updates
+			.iter()
+			.any(|update| update["lights"][0]["temperature"].as_u64() == Some(344))
+	);
+	assert_eq!(client.state().unwrap(), original);
+}
+
+#[test]
+fn sweep_holds_brightness_and_restores_it() {
+	let (port, state) = start_server();
+	let client = client(port);
+	let original = client.state().unwrap();
+
+	client
+		.sweep(SweepConfig {
+			count: 1,
+			duration_ms: 100,
+			ease: PulseEase::Linear,
+			brightness: Some(30),
+		})
+		.unwrap();
+
+	let updates = state.lock().unwrap().updates.clone();
+	assert!(
+		updates
+			.iter()
+			.any(|update| update["lights"][0]["brightness"].as_u64() == Some(30))
+	);
 	assert_eq!(client.state().unwrap(), original);
 }
 

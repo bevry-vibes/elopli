@@ -294,7 +294,7 @@ The response is HTTP 200 with an empty body.
 
 The light has no pulse endpoint.
 `POST /elgato/identify` flashes the light, but it is not configurable.
-The client ramps brightness or temperature from the current value to a peak, then down to the minimum and back to the peak for each count.
+The client ramps brightness from the current value to a peak, then down to the minimum and back to the peak for each count.
 `duration_ms` covers the entire animation, including the first rise and the final restore.
 A count of 3 is:
 
@@ -303,9 +303,7 @@ current → peak → minimum → peak → minimum → peak → minimum → origi
 ```
 
 The last minimum returns to the original values instead of another peak.
-For brightness, the minimum is 2% and the light stays on.
-For temperature, the minimum is the coolest end of the range.
-Temperature minimum is not off.
+The minimum is 2% and the light stays on.
 The pulse restores the exact original on, brightness, and temperature values when it finishes.
 If the light was off, the client turns it on for the pulse and turns it off again at the end.
 An interrupting action applies its own value and the pulse does not restore over it.
@@ -319,13 +317,29 @@ The light's HTTP server is fragile under bursts of short-lived connections, and 
 
 A native client that keeps one HTTP connection open sends a frame every 50 ms.
 The `curl` fallback opens a new connection per request, so it sends a frame at most every 250 ms.
-That keeps the default pulse to one frame per ramp and avoids exhausting the light's connection table.
+That keeps request pressure low enough for the light's connection table.
 Easing is visible when the duration is long enough for more than one frame.
 
-A cross-process lock stops two pulses from overlapping.
+A cross-process lock stops two animations from overlapping.
 Every other action writes a cancellation token and waits for the lock before it writes.
 The pulse checks the token before each frame, and compares the light's state with the value it last wrote.
 A user action wins, and an external change is preserved without a restore.
+
+## Sweep (client-side)
+
+The sweep uses the temperature range from 0% (cool) to 100% (warm).
+It moves from the current temperature to the warm end, then runs the requested number of warm-to-cool sweeps, then returns from the cool end to the original temperature.
+`duration_ms` covers the entire animation.
+A count of 3 is:
+
+```text
+current → warm → cool → warm → cool → warm → cool → original
+```
+
+A brightness override holds one brightness for the whole sweep.
+`0%` leaves the current brightness alone.
+The sweep restores the original on, brightness, and temperature values when it finishes.
+Cancellation and external-change handling are shared with the pulse.
 
 ## Errors
 

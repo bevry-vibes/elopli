@@ -1,6 +1,6 @@
 import SwiftUI
 
-private enum PulseEaseOption: String, CaseIterable, Identifiable {
+enum PulseEaseOption: String, CaseIterable, Identifiable {
 	case linear
 	case easeIn
 	case easeOut
@@ -27,26 +27,6 @@ private enum PulseEaseOption: String, CaseIterable, Identifiable {
 	}
 }
 
-private enum PulseTargetOption: String, CaseIterable, Identifiable {
-	case brightness
-	case temperature
-
-	var id: String { rawValue }
-
-	var label: String {
-		switch self {
-		case .brightness: return "Brightness"
-		case .temperature: return "Temperature"
-		}
-	}
-
-	var value: FfiPulseTarget {
-		switch self {
-		case .brightness: return .brightness
-		case .temperature: return .temperature
-		}
-	}
-}
 
 struct PulseSheet: View {
 	@ObservedObject var model: AppModel
@@ -54,9 +34,8 @@ struct PulseSheet: View {
 	@Environment(\.dismiss) private var dismiss
 
 	@State private var count = 3
-	@State private var durationMs = 600
+	@State private var durationMs = 3000
 	@State private var ease = PulseEaseOption.linear
-	@State private var target = PulseTargetOption.brightness
 	@State private var value = 100.0
 	@State private var isPulsing = false
 	@State private var stopRequested = false
@@ -110,19 +89,6 @@ struct PulseSheet: View {
 				}
 				.labelsHidden()
 				.frame(width: 150)
-			}
-			.disabled(isPulsing)
-
-			HStack {
-				Text("Target")
-				Spacer()
-				Picker("", selection: $target) {
-					ForEach(PulseTargetOption.allCases) { option in
-						Text(option.label).tag(option)
-					}
-				}
-				.labelsHidden()
-				.frame(width: 220)
 			}
 			.disabled(isPulsing)
 
@@ -196,7 +162,6 @@ struct PulseSheet: View {
 				count: count,
 				durationMs: durationMs,
 				ease: ease.value,
-				target: target.value,
 				value: value
 			)
 			isPulsing = false

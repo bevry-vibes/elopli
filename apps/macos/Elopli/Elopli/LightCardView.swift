@@ -11,6 +11,7 @@ struct LightCardView: View {
 	@State private var showRename = false
 	@State private var showPowerOn = false
 	@State private var showPulse = false
+	@State private var showSweep = false
 
 	init(model: AppModel, device: LightDevice) {
 		self.model = model
@@ -87,6 +88,9 @@ struct LightCardView: View {
 		}
 		.sheet(isPresented: $showPulse) {
 			PulseSheet(model: model, device: device)
+		}
+		.sheet(isPresented: $showSweep) {
+			SweepSheet(model: model, device: device)
 		}
 	}
 
@@ -240,6 +244,7 @@ struct LightCardView: View {
 				Button("Rename…") { showRename = true }
 				Button("Power On Behaviour…") { showPowerOn = true }
 				Button("Pulse…") { showPulse = true }
+				Button("Sweep…") { showSweep = true }
 				Button("Identify") {
 					Task { await model.identify(device) }
 				}

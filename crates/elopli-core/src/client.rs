@@ -9,6 +9,7 @@ use crate::model::{
 	parse_accessory_info, parse_error_messages, parse_power_on_settings, parse_state,
 };
 use crate::pulse::{PulseCancellation, PulseConfig, PulseEase, PulseOutcome};
+use crate::sweep::SweepConfig;
 use crate::transport::{HttpTransport, TransportMode, build_transport};
 use crate::validate::{
 	validate_brightness, validate_display_name, validate_temperature, warmth_to_mired,
@@ -236,10 +237,121 @@ impl ElopliClient {
 		result
 	}
 
+	/// Sweep the temperature across the full cool-to-warm range.
+	pub fn sweep(&self, config: SweepConfig) -> Result<PulseOutcome> {
+		config.validate()?;
+		self.control.cancel()?;
+		let _guard = self.control.lock()?;
+		let token = self.control.token()?;
+		let original = self.state()?;
+		let result = self.run_sweep(config, original, &token);
+		if result.is_err() {
+			let _ = self.restore_state(original);
+		}
+		result
+	}
+
 	/// Stop a running pulse without changing the light. The pulse leaves the
 	/// light at its last frame, or at the external value it detected.
 	pub fn cancel_pulse(&self) -> Result<()> {
 		self.control.cancel()
+	}
+
+	fn run_sweep(
+		&self,
+		config: SweepConfig,
+		original: LightState,
+		token: &str,
+	) -> Result<PulseOutcome> {
+		let cool = warmth_to_mired(0.0)?;
+		let warm = warmth_to_mired(100.0)?;
+		let segments = config.count.saturating_mul(2).saturating_add(1);
+		let mut expected = original;
+		if let Some(brightness) = config.brightness {
+			expected = self.write_pulse_update(Update {
+				on: Some(true),
+				brightness: Some(brightness),
+				..Update::default()
+			})?;
+		} else if !original.on {
+			expected = self.write_pulse_update(Update {
+				on: Some(true),
+				brightness: Some(original.brightness.max(2)),
+				..Update::default()
+			})?;
+		}
+
+		// Move from the current temperature to the warm end first.
+		if let Some(outcome) = self.ramp_to(
+			token,
+			expected,
+			original.brightness,
+			warm,
+			Some(true),
+			segment_ms(config.duration_ms, segments, 0),
+			config.ease,
+			false,
+			true,
+			&mut expected,
+		)? {
+			return Ok(outcome);
+		}
+
+		for cycle in 0..config.count {
+			// Each sweep is a warm-to-cool transition.
+			if let Some(outcome) = self.ramp_to(
+				token,
+				expected,
+				original.brightness,
+				cool,
+				Some(true),
+				segment_ms(config.duration_ms, segments, 1 + cycle * 2),
+				config.ease,
+				false,
+				true,
+				&mut expected,
+			)? {
+				return Ok(outcome);
+			}
+			if cycle + 1 < config.count {
+				if let Some(outcome) = self.ramp_to(
+					token,
+					expected,
+					original.brightness,
+					warm,
+					Some(true),
+					segment_ms(config.duration_ms, segments, 2 + cycle * 2),
+					config.ease,
+					false,
+					true,
+					&mut expected,
+				)? {
+					return Ok(outcome);
+				}
+			}
+		}
+
+		// Return from the cool end to the original temperature.
+		if let Some(outcome) = self.ramp_to(
+			token,
+			expected,
+			original.brightness,
+			original.temperature,
+			Some(true),
+			segment_ms(config.duration_ms, segments, segments - 1),
+			config.ease,
+			false,
+			true,
+			&mut expected,
+		)? {
+			return Ok(outcome);
+		}
+
+		if let Some(outcome) = self.cancelled(token, &expected)? {
+			return Ok(outcome);
+		}
+		self.restore_state(original)?;
+		Ok(PulseOutcome::Completed(original))
 	}
 
 	fn begin_action(&self) -> Result<ControlGuard> {
@@ -253,49 +365,25 @@ impl ElopliClient {
 		original: LightState,
 		token: &str,
 	) -> Result<PulseOutcome> {
-		let includes_brightness = config.target.includes_brightness();
-		let includes_temperature = config.target.includes_temperature();
-		let peak_brightness = if includes_brightness {
-			config.value.clamp(2, 100)
-		} else {
-			original.brightness
-		};
-		let peak_temperature = if includes_temperature {
-			warmth_to_mired(f64::from(config.value))?
-		} else {
-			original.temperature
-		};
-		let low_temperature = if includes_temperature {
-			warmth_to_mired(0.0)?
-		} else {
-			original.temperature
-		};
-		// The light treats anything below 2% as off. The UI presents that
-		// minimum as 2%, so the pulse keeps the light on at 2%.
+		let peak_brightness = config.value.clamp(2, 100);
+		// The light treats anything below 2% as off, so the pulse keeps the
+		// light on at 2%.
 		let low_brightness = 2;
 		let segments = config.count.saturating_mul(2).saturating_add(1);
 
 		let mut expected = original;
-		if !original.on && !includes_brightness {
-			// A temperature-only pulse still needs a visible brightness.
-			expected = self.write_pulse_update(Update {
-				on: Some(true),
-				brightness: Some(2),
-				..Update::default()
-			})?;
-		}
 
 		// Current state to the first peak.
 		if let Some(outcome) = self.ramp_to(
 			token,
 			expected,
 			peak_brightness,
-			peak_temperature,
+			original.temperature,
 			Some(true),
 			segment_ms(config.duration_ms, segments, 0),
 			config.ease,
-			includes_brightness,
-			includes_temperature,
+			true,
+			false,
 			&mut expected,
 		)? {
 			return Ok(outcome);
@@ -308,12 +396,12 @@ impl ElopliClient {
 				token,
 				expected,
 				low_brightness,
-				low_temperature,
+				original.temperature,
 				None,
 				segment_ms(config.duration_ms, segments, 1 + cycle * 2),
 				config.ease,
-				includes_brightness,
-				includes_temperature,
+				true,
+				false,
 				&mut expected,
 			)? {
 				return Ok(outcome);
@@ -324,12 +412,12 @@ impl ElopliClient {
 					token,
 					expected,
 					peak_brightness,
-					peak_temperature,
+					original.temperature,
 					Some(true),
 					segment_ms(config.duration_ms, segments, 2 + cycle * 2),
 					config.ease,
-					includes_brightness,
-					includes_temperature,
+					true,
+					false,
 					&mut expected,
 				)? {
 					return Ok(outcome);
@@ -340,7 +428,7 @@ impl ElopliClient {
 		// Return to the value the light had before the pulse. If an action
 		// interrupted the pulse, that action has already applied its value
 		// and the pulse stopped without restoring.
-		if original.on && (includes_brightness || includes_temperature) {
+		if original.on {
 			if let Some(outcome) = self.ramp_to(
 				token,
 				expected,
@@ -349,8 +437,8 @@ impl ElopliClient {
 				Some(true),
 				segment_ms(config.duration_ms, segments, segments - 1),
 				config.ease,
-				includes_brightness,
-				includes_temperature,
+				true,
+				false,
 				&mut expected,
 			)? {
 				return Ok(outcome);
@@ -379,8 +467,12 @@ impl ElopliClient {
 		expected: &mut LightState,
 	) -> Result<Option<PulseOutcome>> {
 		let frame_ms = self.transport.pulse_frame_ms().max(10);
-		let steps = (ramp_ms / frame_ms).max(1);
-		let step_ms = (ramp_ms / steps).max(10);
+		// Hold the endpoint briefly so peaks and minima are visible even when
+		// the whole animation is short.
+		let hold_ms = (ramp_ms / 5).max(1).min(ramp_ms / 2).max(1);
+		let motion_ms = ramp_ms.saturating_sub(hold_ms).max(1);
+		let steps = (motion_ms / frame_ms).max(1);
+		let step_ms = (motion_ms / steps).max(10);
 
 		for step in 1..=steps {
 			if let Some(outcome) = self.cancelled(token, expected)? {
@@ -401,6 +493,7 @@ impl ElopliClient {
 			*expected = self.write_pulse_update(update)?;
 			std::thread::sleep(std::time::Duration::from_millis(u64::from(step_ms)));
 		}
+		std::thread::sleep(std::time::Duration::from_millis(u64::from(hold_ms)));
 		Ok(None)
 	}
 

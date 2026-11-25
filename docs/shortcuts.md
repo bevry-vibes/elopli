@@ -42,7 +42,8 @@ The Elopli actions appear in the action list.
 - **Get Light State** — read the power, brightness, and warmth.
 - **Rename Light** — change the light display name.
 - **Set Power-On Behaviour** — restore the last setting, or restore defaults.
-- **Pulse Light** — pulse brightness or warmth, then restore the original values.
+- **Pulse Light** — pulse brightness, then restore the original values.
+- **Sweep Light** — sweep temperature across the full range, then restore the original values.
 
 A new action stops a running pulse and applies its own change.
 A pulse also stops when the light changes outside Elopli, and that external change is preserved.
@@ -56,12 +57,18 @@ The **Rename Light** action uses a single-light picker.
 Pulse parameters:
 
 - **Count** — number of peak-to-minimum pulses, 1 to 20.
-- **Duration** — duration of the entire pulse animation in milliseconds.
+- **Duration** — duration of the entire pulse animation in milliseconds (default 3000).
 - **Ease** — linear (default), ease in, ease out, or ease in out.
-- **Target** — brightness (default) or temperature.
-- **Peak Value** — peak percentage for the selected property.
+- **Peak Value** — peak brightness percentage.
 
-For brightness, the minimum is 2%; the light stays on at that level.
+The minimum is 2%; the light stays on at that level.
+
+Sweep parameters:
+
+- **Count** — number of warm-to-cool sweeps, 1 to 20.
+- **Duration** — duration of the entire sweep animation in milliseconds.
+- **Ease** — linear (default), ease in, ease out, or ease in out.
+- **Brightness** — brightness to hold during the sweep. 0 keeps the current brightness; any other value is held for the whole sweep.
 
 ## Local network permission
 

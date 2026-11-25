@@ -31,13 +31,15 @@ Serial numbers and MAC addresses are discarded by the client.
 - mDNS discovery.
 - Native Apple Shortcuts actions with a multi-select light picker and per-action icons.
 - Link lights or individual controls with Command-click.
-- Pulse brightness or warmth from the current value to a peak, then through peak-to-minimum cycles, then back to the original values.
+- Pulse brightness from the current value to a peak, then through peak-to-minimum cycles, then back to the original values.
   A count of 3 means three peak-to-minimum fades.
-  For brightness, the minimum is 2% and the light stays on.
+  The minimum is 2% and the light stays on.
   A new action stops a running pulse, and a pulse stops itself when the light changes elsewhere.
   Pulse frames are paced to the transport so the light's small HTTP server is not flooded.
-- Pulse editor in each light's menu with count, duration, ease, target, and peak value.
-  Refresh polling pauses for the light that is pulsing.
+- Sweep temperature from warmest to coolest and back to warmest for each count, then restore the original values.
+  A sweep can hold a fixed brightness for the whole animation.
+- Pulse and sweep editors in each light's menu.
+  Refresh polling pauses for the light that is animating.
 - Drag anywhere on a card to reorder. Dropping on another card swaps their positions.
 - Live refresh while the app is open.
 - Native app icon.
@@ -189,8 +191,10 @@ elopli rename Right "Desk Right"
 elopli power-on
 elopli power-on --defaults --brightness 20 --warmth 35 --all
 elopli power-on --last --all
-elopli pulse --count 3 --duration 600 --ease linear --target brightness --value 100
-elopli pulse Left --count 1 --duration 300 --ease linear --target brightness --value 80
+elopli pulse --count 3 --duration 3000 --ease linear --value 100
+elopli pulse Left --count 1 --duration 300 --ease linear --value 80
+elopli sweep --count 1 --duration 3000 --ease linear
+elopli sweep Left --count 2 --duration 4000 --brightness 40
 elopli info
 elopli discover
 ```

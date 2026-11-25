@@ -82,34 +82,10 @@ impl PulseEase {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PulseTarget {
-	Brightness,
-	Temperature,
-}
-
-impl PulseTarget {
-	pub fn includes_brightness(self) -> bool {
-		matches!(self, Self::Brightness)
-	}
-
-	pub fn includes_temperature(self) -> bool {
-		matches!(self, Self::Temperature)
-	}
-
-	pub fn label(self) -> &'static str {
-		match self {
-			Self::Brightness => "brightness",
-			Self::Temperature => "temperature",
-		}
-	}
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PulseConfig {
 	pub count: u32,
 	pub duration_ms: u32,
 	pub ease: PulseEase,
-	pub target: PulseTarget,
 	pub value: u8,
 }
 
@@ -117,9 +93,8 @@ impl Default for PulseConfig {
 	fn default() -> Self {
 		Self {
 			count: 3,
-			duration_ms: 600,
+			duration_ms: 3_000,
 			ease: PulseEase::Linear,
-			target: PulseTarget::Brightness,
 			value: 100,
 		}
 	}
