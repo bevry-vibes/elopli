@@ -1,0 +1,55 @@
+name: Optoli
+options:
+  bundleIdPrefix: com.bevry
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "-"
+    DEVELOPMENT_TEAM: ""
+    ENABLE_HARDENED_RUNTIME: NO
+targets:
+  Optoli:
+    type: application
+    platform: macOS
+    sources:
+      - path: Optoli
+      - path: Generated/optoli_ffi.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.bevry.optoli
+        PRODUCT_NAME: Optoli
+        INFOPLIST_FILE: Optoli/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        SWIFT_INCLUDE_PATHS:
+          - $(SRCROOT)/Generated/FFI
+        HEADER_SEARCH_PATHS:
+          - $(SRCROOT)/Generated/FFI
+        LIBRARY_SEARCH_PATHS:
+          - $(SRCROOT)/Generated/FFI
+        OTHER_SWIFT_FLAGS:
+          - $(inherited)
+          - -Xcc
+          - -fmodule-map-file=$(SRCROOT)/Generated/FFI/module.modulemap
+        OTHER_LDFLAGS:
+          - -loptoli_ffi
+          - -liconv
+          - -lresolv
+    dependencies:
+      - framework: AppIntents.framework
+        embed: false
+      - framework: ServiceManagement.framework
+        embed: false
+
+schemes:
+  Optoli:
+    build:
+      targets:
+        Optoli: all
+    run:
+      config: Debug
+

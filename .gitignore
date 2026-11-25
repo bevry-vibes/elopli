@@ -34,36 +34,18 @@ bower_components/
 node_modules/
 .next/
 
-# -------------------------------------
-# CDN Inclusions, Git Exclusions
+# Rust
+target/
 
-# Build Outputs
-**/out.*
-**/*.out.*
-**/out/
-**/output/
-*compiled*
-edition*/
-coffeejs/
-coffee/
-es5/
-es2015/
-esnext/
-docs/
+# macOS app build artifacts
+apps/macos/Optoli/build/
+apps/macos/Optoli/Optoli.xcodeproj/
+apps/macos/Optoli/Generated/
 
 # =====================================
 # CUSTOM
 
 .now
-
-# Python
-.venv/
-__pycache__/
-*.py[cod]
-.pytest_cache/
-.ruff_cache/
-dist/
-*.egg-info/
 
 # Documentation is tracked in this project
 !docs/
