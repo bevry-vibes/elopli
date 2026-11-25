@@ -187,13 +187,17 @@ def _resolve_devices(args: argparse.Namespace, config: Config, default_all: bool
 	hosts = getattr(args, "host", [])
 	if hosts:
 		return [Device(name=host, host=host) for host in hosts]
-	if getattr(args, "all", False) or default_all:
+	if getattr(args, "all", False):
 		if not config.devices:
 			raise CommandError(f"no devices in {config.path}")
 		return list(config.devices)
 	names = getattr(args, "devices", [])
 	if names:
 		return [config.find(name) for name in names]
+	if default_all:
+		if not config.devices:
+			raise CommandError(f"no devices in {config.path}")
+		return list(config.devices)
 	if len(config.devices) == 1:
 		return [config.devices[0]]
 	if not config.devices:

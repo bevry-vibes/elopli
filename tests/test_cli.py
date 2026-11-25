@@ -22,6 +22,17 @@ def test_status_json_has_no_identity(config_path: Path, capsys: Any) -> None:
 	assert "mac_address" not in output
 
 
+def test_status_with_a_name_selects_one_device(config_path: Path, capsys: Any) -> None:
+	path = config_path.with_name("two.json")
+	payload = json.loads(config_path.read_text(encoding="utf-8"))
+	second = dict(payload["devices"][0], name="Other")
+	payload["devices"].append(second)
+	path.write_text(json.dumps(payload), encoding="utf-8")
+	assert main(["status", "Test", "--json", "--config", str(path)]) == 0
+	output = json.loads(capsys.readouterr().out)
+	assert [record["name"] for record in output] == ["Test"]
+
+
 def test_off_and_on(config_path: Path, server: Any, capsys: Any) -> None:
 	assert main(["off", "--config", str(config_path)]) == 0
 	assert server.state["lights"][0]["on"] == 0
