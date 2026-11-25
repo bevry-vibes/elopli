@@ -271,9 +271,9 @@ impl ElopliClient {
 			original.temperature
 		};
 		// The light treats anything below 2% as off. The UI presents that
-		// minimum as 0%, so the pulse keeps the light on at 2%.
+		// minimum as 2%, so the pulse keeps the light on at 2%.
 		let low_brightness = 2;
-		let ramp_ms = (config.duration_ms / 2).max(10);
+		let segments = config.count.saturating_mul(2).saturating_add(1);
 
 		let mut expected = original;
 		if !original.on && !includes_brightness {
@@ -292,7 +292,7 @@ impl ElopliClient {
 			peak_brightness,
 			peak_temperature,
 			Some(true),
-			ramp_ms,
+			segment_ms(config.duration_ms, segments, 0),
 			config.ease,
 			includes_brightness,
 			includes_temperature,
@@ -302,15 +302,15 @@ impl ElopliClient {
 		}
 
 		for cycle in 0..config.count {
-			// Every pulse is a peak-to-0 transition. The light stays on at
-			// its 2% minimum, which the UI labels as 0%.
+			// Every pulse is a peak-to-minimum transition. The light stays
+			// on at its 2% minimum.
 			if let Some(outcome) = self.ramp_to(
 				token,
 				expected,
 				low_brightness,
 				low_temperature,
 				None,
-				ramp_ms,
+				segment_ms(config.duration_ms, segments, 1 + cycle * 2),
 				config.ease,
 				includes_brightness,
 				includes_temperature,
@@ -326,7 +326,7 @@ impl ElopliClient {
 					peak_brightness,
 					peak_temperature,
 					Some(true),
-					ramp_ms,
+					segment_ms(config.duration_ms, segments, 2 + cycle * 2),
 					config.ease,
 					includes_brightness,
 					includes_temperature,
@@ -347,7 +347,7 @@ impl ElopliClient {
 				original.brightness,
 				original.temperature,
 				Some(true),
-				ramp_ms,
+				segment_ms(config.duration_ms, segments, segments - 1),
 				config.ease,
 				includes_brightness,
 				includes_temperature,
@@ -441,4 +441,15 @@ fn lerp_u8(from: u8, to: u8, progress: f64) -> u8 {
 
 fn lerp_u16(from: u16, to: u16, progress: f64) -> u16 {
 	(f64::from(from) + (f64::from(to) - f64::from(from)) * progress).round() as u16
+}
+
+/// Split the total pulse duration across every segment. Using the boundaries
+/// avoids losing milliseconds to integer division and keeps the whole
+/// animation at the requested duration.
+fn segment_ms(total_ms: u32, segments: u32, index: u32) -> u32 {
+	let segments = u64::from(segments.max(1));
+	let total = u64::from(total_ms);
+	let start = total * u64::from(index) / segments;
+	let end = total * u64::from(index + 1) / segments;
+	(end.saturating_sub(start)).max(1) as u32
 }

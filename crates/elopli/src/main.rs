@@ -275,7 +275,7 @@ struct PulseArgs {
 		long,
 		default_value_t = 3,
 		value_parser = clap::value_parser!(u32).range(1..=20),
-		help = "number of peak-to-0 pulses (default 3)"
+		help = "number of peak-to-minimum pulses (default 3)"
 	)]
 	count: u32,
 	#[arg(
@@ -283,7 +283,7 @@ struct PulseArgs {
 		default_value_t = 600,
 		value_parser = clap::value_parser!(u32).range(50..=10000),
 		value_name = "MS",
-		help = "duration of one pulse in milliseconds (default 600)"
+		help = "duration of the entire pulse animation in milliseconds (default 600)"
 	)]
 	duration: u32,
 	#[arg(

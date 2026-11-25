@@ -66,7 +66,7 @@ struct PulseSheet: View {
 		VStack(alignment: .leading, spacing: 14) {
 			Text("Pulse \(device.name)")
 				.font(.title3.bold())
-			Text("Each pulse is one peak-to-0 fade. Count 3 runs peak → 0 three times, then restores the original values.")
+			Text("Each pulse is one peak-to-minimum fade. Count 3 runs peak → minimum three times, then restores the original values.")
 				.font(.caption)
 				.foregroundStyle(.secondary)
 
@@ -95,6 +95,10 @@ struct PulseSheet: View {
 					.foregroundStyle(.secondary)
 			}
 			.disabled(isPulsing)
+
+			Text("Duration covers the entire pulse animation.")
+				.font(.caption2)
+				.foregroundStyle(.secondary)
 
 			HStack {
 				Text("Ease")

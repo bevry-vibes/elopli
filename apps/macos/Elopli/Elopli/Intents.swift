@@ -388,7 +388,7 @@ enum PulseTargetChoice: String, AppEnum {
 struct PulseIntent: AppIntent {
 	static var title: LocalizedStringResource = "Pulse Light"
 	static var description = IntentDescription(
-		"Pulse brightness or temperature from a peak to 0%, then restore the original values."
+		"Pulse brightness or temperature from a peak to the minimum, then restore the original values."
 	)
 	static var displayRepresentation: DisplayRepresentation {
 		DisplayRepresentation(
@@ -405,14 +405,14 @@ struct PulseIntent: AppIntent {
 
 	@Parameter(
 		title: "Count",
-		description: "Number of peak-to-0 pulses.",
+		description: "Number of peak-to-minimum pulses.",
 		default: 3
 	)
 	var count: Int
 
 	@Parameter(
 		title: "Duration",
-		description: "Duration of one pulse in milliseconds.",
+		description: "Duration of the entire pulse animation in milliseconds.",
 		default: 600
 	)
 	var durationMs: Int

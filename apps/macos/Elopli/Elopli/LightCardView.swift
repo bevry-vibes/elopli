@@ -285,17 +285,12 @@ struct LightCardView: View {
 
 	private var brightnessLabel: String {
 		if isEditingBrightness {
-			return brightnessDisplay(brightness)
+			return "\(Int(brightness.rounded()))%"
 		}
 		if device.state?.on == true && (device.state?.brightness ?? 0) < 2 {
 			return "off"
 		}
-		return brightnessDisplay(brightness)
-	}
-
-	private func brightnessDisplay(_ value: Double) -> String {
-		let percent = Int(value.rounded())
-		return "\(percent <= 2 ? 0 : percent)%"
+		return "\(Int(brightness.rounded()))%"
 	}
 
 	private var wifiIcon: some View {

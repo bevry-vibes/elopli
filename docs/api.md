@@ -294,16 +294,18 @@ The response is HTTP 200 with an empty body.
 
 The light has no pulse endpoint.
 `POST /elgato/identify` flashes the light, but it is not configurable.
-The client ramps brightness or temperature from the current value to a peak, then down to 0% and back to the peak for each count.
+The client ramps brightness or temperature from the current value to a peak, then down to the minimum and back to the peak for each count.
+`duration_ms` covers the entire animation, including the first rise and the final restore.
 A count of 3 is:
 
 ```text
-current → peak → 0 → peak → 0 → peak → 0 → original
+current → peak → minimum → peak → minimum → peak → minimum → original
 ```
 
-The last 0% returns to the original values instead of another peak.
-The 0% low point is the light's 2% minimum; the light stays on, and the UI shows that minimum as 0%.
-Temperature 0% is the coolest end of the range, not off.
+The last minimum returns to the original values instead of another peak.
+For brightness, the minimum is 2% and the light stays on.
+For temperature, the minimum is the coolest end of the range.
+Temperature minimum is not off.
 The pulse restores the exact original on, brightness, and temperature values when it finishes.
 If the light was off, the client turns it on for the pulse and turns it off again at the end.
 An interrupting action applies its own value and the pulse does not restore over it.
