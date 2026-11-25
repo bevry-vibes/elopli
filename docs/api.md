@@ -172,8 +172,38 @@ GET /elgato/lights/settings
 `powerOnBehavior` value 1 restores the last state.
 Value 2 uses the `powerOnBrightness` and `powerOnTemperature` values.
 
-A `PUT` to this path needs the complete object.
+| Field | Range | Meaning |
+| --- | --- | --- |
+| `powerOnBehavior` | 1 or 2 | 1 restores the last state. 2 uses the defaults. |
+| `powerOnBrightness` | 0 to 100 | Default brightness for behaviour 2 |
+| `powerOnTemperature` | 143 to 344 | Default mired value for behaviour 2 |
+| `switchOnDurationMs` | milliseconds | Fade-in time |
+| `switchOffDurationMs` | milliseconds | Fade-out time |
+| `colorChangeDurationMs` | milliseconds | Fade time for a colour or brightness change |
+
+### Set the power-on behaviour
+
+Read the settings first.
+Change the fields.
+Send the complete object back.
+
+```http
+PUT /elgato/lights/settings
+Content-Type: application/json
+
+{
+  "powerOnBehavior": 2,
+  "powerOnBrightness": 25,
+  "powerOnTemperature": 244,
+  "switchOnDurationMs": 100,
+  "switchOffDurationMs": 300,
+  "colorChangeDurationMs": 100
+}
+```
+
 A partial object returns HTTP 400.
+A complete object returns HTTP 200 with an empty body.
+The device applies the new behaviour at the next power-on.
 
 ## Read accessory information
 
@@ -203,6 +233,31 @@ GET /elgato/accessory-info
 The response contains the serial number and the network interface address.
 Treat both values as private data.
 This client discards them.
+
+### Set the display name
+
+```http
+PUT /elgato/accessory-info
+Content-Type: application/json
+
+{"displayName":"Desk light"}
+```
+
+The device returns HTTP 200 with an empty body.
+The new name appears in the next `GET`.
+
+The name can have 1 to 63 bytes.
+A longer name returns HTTP 400 with this body:
+
+```json
+{"errors":[{"message":"Too much data","code":103}]}
+```
+
+The device accepts an empty name and clears the value.
+This client rejects an empty name.
+
+A rename does not change the mDNS instance name.
+The instance stays in the `Elgato Key Light <suffix>` form.
 
 ## Identify a light
 

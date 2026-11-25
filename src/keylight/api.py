@@ -19,6 +19,9 @@ MIRED_MIN = 143
 MIRED_MAX = 344
 KELVIN_MIN = 2900
 KELVIN_MAX = 7000
+DISPLAY_NAME_MAX_BYTES = 63
+POWER_ON_RESTORE_LAST = 1
+POWER_ON_RESTORE_DEFAULTS = 2
 
 
 class KeyLightError(Exception):
@@ -86,6 +89,17 @@ def mired_to_kelvin(value: int) -> int:
 
 def mired_to_warmth(value: int) -> int:
 	return round(((value - MIRED_MIN) / (MIRED_MAX - MIRED_MIN)) * 100)
+
+
+def validate_display_name(value: str) -> str:
+	if not isinstance(value, str):
+		raise ValueError("display name must be text")
+	name = value.strip()
+	if not name:
+		raise ValueError("display name must not be empty")
+	if len(name.encode("utf-8")) > DISPLAY_NAME_MAX_BYTES:
+		raise ValueError(f"display name must be {DISPLAY_NAME_MAX_BYTES} bytes or fewer")
+	return name
 
 
 class Transport:
@@ -397,5 +411,10 @@ class KeyLightClient:
 	def settings(self) -> dict[str, Any]:
 		return self._request("GET", "/elgato/lights/settings")
 
-	def set_display_name(self, name: str) -> None:
-		self._request("PUT", "/elgato/accessory-info", {"displayName": name})
+	def update_settings(self, settings: dict[str, Any]) -> dict[str, Any]:
+		return self._request("PUT", "/elgato/lights/settings", settings)
+
+	def set_display_name(self, name: str) -> str:
+		clean = validate_display_name(name)
+		self._request("PUT", "/elgato/accessory-info", {"displayName": clean})
+		return clean

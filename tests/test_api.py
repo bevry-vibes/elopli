@@ -54,8 +54,26 @@ def test_rejects_empty_update(client: KeyLightClient) -> None:
 
 def test_reports_api_errors(client: KeyLightClient) -> None:
 	with pytest.raises(KeyLightApiError) as error:
-		client.set_display_name("")
+		client.update_settings({"powerOnBehavior": 1})
 	assert "Fail to parse JSON data" in str(error.value)
+
+
+def test_rename(client: KeyLightClient, server: Any) -> None:
+	assert client.set_display_name("  Desk  ") == "Desk"
+	assert server.info["displayName"] == "Desk"
+	with pytest.raises(ValueError):
+		client.set_display_name("")
+	with pytest.raises(ValueError):
+		client.set_display_name("x" * 64)
+
+
+def test_update_settings(client: KeyLightClient, server: Any) -> None:
+	settings = client.settings()
+	settings.update({"powerOnBehavior": 2, "powerOnBrightness": 25, "powerOnTemperature": 244})
+	client.update_settings(settings)
+	assert server.settings["powerOnBehavior"] == 2
+	assert server.settings["powerOnBrightness"] == 25
+	assert server.settings["powerOnTemperature"] == 244
 
 
 def test_reports_connection_errors() -> None:

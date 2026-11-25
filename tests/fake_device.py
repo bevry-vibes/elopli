@@ -40,9 +40,9 @@ class Handler(BaseHTTPRequestHandler):
 		if self.path == "/elgato/lights":
 			self.send_json(200, self.server.state)  # type: ignore[attr-defined]
 		elif self.path == "/elgato/accessory-info":
-			self.send_json(200, INFO)
+			self.send_json(200, self.server.info)  # type: ignore[attr-defined]
 		elif self.path == "/elgato/lights/settings":
-			self.send_json(200, {"powerOnBehavior": 1})
+			self.send_json(200, self.server.settings)  # type: ignore[attr-defined]
 		else:
 			self.send_json(404, {"errors": [{"message": "not found"}]})
 
@@ -59,9 +59,25 @@ class Handler(BaseHTTPRequestHandler):
 			self.server.state["lights"][0].update(payload["lights"][0])  # type: ignore[attr-defined]
 			self.send_json(200, self.server.state)  # type: ignore[attr-defined]
 		elif self.path == "/elgato/accessory-info":
-			if not payload.get("displayName"):
+			name = payload.get("displayName")
+			if not isinstance(name, str) or len(name.encode("utf-8")) > 63:
+				self.send_json(400, {"errors": [{"message": "Too much data"}]})
+				return
+			self.server.info["displayName"] = name  # type: ignore[attr-defined]
+			self.send_json(200, {})
+		elif self.path == "/elgato/lights/settings":
+			required = {
+				"powerOnBehavior",
+				"powerOnBrightness",
+				"powerOnTemperature",
+				"switchOnDurationMs",
+				"switchOffDurationMs",
+				"colorChangeDurationMs",
+			}
+			if not required.issubset(payload):
 				self.send_json(400, {"errors": [{"message": "Fail to parse JSON data"}]})
 				return
+			self.server.settings = payload  # type: ignore[attr-defined]
 			self.send_json(200, {})
 		else:
 			self.send_json(404, {"errors": [{"message": "not found"}]})
@@ -77,5 +93,14 @@ class Handler(BaseHTTPRequestHandler):
 def make_server() -> ThreadingHTTPServer:
 	httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
 	httpd.state = {"numberOfLights": 1, "lights": [{"on": 1, "brightness": 50, "temperature": 267}]}  # type: ignore[attr-defined]
+	httpd.info = dict(INFO)  # type: ignore[attr-defined]
+	httpd.settings = {  # type: ignore[attr-defined]
+		"powerOnBehavior": 1,
+		"powerOnBrightness": 20,
+		"powerOnTemperature": 213,
+		"switchOnDurationMs": 100,
+		"switchOffDurationMs": 300,
+		"colorChangeDurationMs": 100,
+	}
 	httpd.requests = []  # type: ignore[attr-defined]
 	return httpd

@@ -14,6 +14,7 @@ The local API is reverse engineered and verified on three devices:
 - Key Light, firmware 1.0.3 (222)
 
 The client controls power, brightness, and colour temperature.
+It also reads and writes the device display name and the power-on behaviour.
 It does not store serial numbers or MAC addresses.
 
 ## Requirements
@@ -65,6 +66,10 @@ keylight warmth 70
 keylight kelvin 4000
 keylight set --on --brightness 60 --warmth 40 --all
 keylight identify Back
+keylight rename Right "Desk Right"
+keylight power-on
+keylight power-on --defaults --brightness 20 --warmth 35 --all
+keylight power-on --last --all
 keylight info
 ```
 

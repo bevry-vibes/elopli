@@ -11,12 +11,19 @@ from typing import Any, Callable
 
 from . import __version__
 from .api import (
+	MIRED_MAX,
+	MIRED_MIN,
+	POWER_ON_RESTORE_DEFAULTS,
+	POWER_ON_RESTORE_LAST,
 	KeyLightApiError,
 	KeyLightClient,
 	KeyLightConnectionError,
 	KeyLightError,
 	kelvin_to_mired,
+	mired_to_kelvin,
+	mired_to_warmth,
 	validate_brightness,
+	validate_display_name,
 	validate_temperature,
 	validate_warmth,
 )
@@ -133,6 +140,42 @@ def build_parser() -> argparse.ArgumentParser:
 
 	identify = subparsers.add_parser("identify", parents=[common], help="flash one or more lights")
 	_add_targets(identify)
+
+	rename = subparsers.add_parser("rename", parents=[common], help="change the device display name")
+	rename.add_argument("device", metavar="DEVICE", help="device name from the registry or a host")
+	rename.add_argument("new_name", metavar="NEW_NAME", help="new display name (1 to 63 bytes)")
+
+	power_on = subparsers.add_parser("power-on", parents=[common], help="read or set the power-on behaviour")
+	power_on.add_argument("devices", nargs="*", metavar="DEVICE", help="device name from the registry")
+	power_on.add_argument("--all", action="store_true", help="use every device in the registry")
+	power_on.add_argument(
+		"--host",
+		action="append",
+		default=[],
+		metavar="HOST",
+		help="use a host directly; repeat for more",
+	)
+	power_on_mode = power_on.add_mutually_exclusive_group()
+	power_on_mode.add_argument(
+		"--last",
+		dest="power_on_mode",
+		action="store_const",
+		const=POWER_ON_RESTORE_LAST,
+		help="restore the last used setting",
+	)
+	power_on_mode.add_argument(
+		"--defaults",
+		dest="power_on_mode",
+		action="store_const",
+		const=POWER_ON_RESTORE_DEFAULTS,
+		help="restore the defaults",
+	)
+	power_on.add_argument("--brightness", type=float, metavar="PERCENT", help="default brightness for --defaults")
+	power_on_colour = power_on.add_mutually_exclusive_group()
+	power_on_colour.add_argument("--warmth", type=float, metavar="PERCENT", help="default warmth for --defaults")
+	power_on_colour.add_argument("--kelvin", type=float, metavar="KELVIN", help="default colour temperature for --defaults")
+	power_on_colour.add_argument("--temperature", type=float, metavar="MIRED", help="default colour temperature in mired")
+	_add_wait(power_on)
 
 	info = subparsers.add_parser("info", parents=[common], help="read product and network details")
 	_add_targets(info)
@@ -284,6 +327,63 @@ def _info_record(device: Device, settings: dict[str, Any]) -> dict[str, Any]:
 	}
 
 
+POWER_ON_LABELS = {
+	POWER_ON_RESTORE_LAST: "restore last used",
+	POWER_ON_RESTORE_DEFAULTS: "restore defaults",
+}
+
+
+def _rename_record(device: Device, settings: dict[str, Any], name: str) -> dict[str, Any]:
+	client = _client(device, settings)
+	try:
+		client.set_display_name(name)
+		info = client.accessory_info()
+	except KeyLightApiError as error:
+		return {**_base(device), "reachable": True, "error": str(error)}
+	except KeyLightError as error:
+		return {**_base(device), "reachable": False, "error": str(error)}
+	return {**_base(device), "reachable": True, "display_name": info.display_name}
+
+
+def _apply_settings(client: KeyLightClient, update: dict[str, Any]) -> dict[str, Any]:
+	current = client.settings()
+	current.update(update)
+	client.update_settings(current)
+	# A settings PUT returns an empty body, so read the stored values again.
+	return client.settings()
+
+
+def _power_on_record(
+	device: Device,
+	settings: dict[str, Any],
+	update: dict[str, Any],
+	wait: float,
+) -> dict[str, Any]:
+	client = _client(device, settings)
+	try:
+		if update:
+			state = _with_deadline(lambda: _apply_settings(client, update), wait)
+		else:
+			state = client.settings()
+	except KeyLightApiError as error:
+		return {**_base(device), "reachable": True, "error": str(error)}
+	except KeyLightError as error:
+		return {**_base(device), "reachable": False, "error": str(error)}
+	behavior = int(state.get("powerOnBehavior", 0))
+	temperature = int(state.get("powerOnTemperature", MIRED_MIN))
+	temperature = max(MIRED_MIN, min(MIRED_MAX, temperature))
+	return {
+		**_base(device),
+		"reachable": True,
+		"power_on_behavior": behavior,
+		"power_on_behavior_label": POWER_ON_LABELS.get(behavior, f"unknown ({behavior})"),
+		"power_on_brightness": int(state.get("powerOnBrightness", 0)),
+		"power_on_temperature_mired": temperature,
+		"power_on_warmth": mired_to_warmth(temperature),
+		"power_on_kelvin": mired_to_kelvin(temperature),
+	}
+
+
 def _format_state(record: dict[str, Any]) -> str:
 	if not record.get("reachable", True):
 		return f"{record['name']}: offline ({record.get('error', 'unreachable')})"
@@ -366,6 +466,33 @@ def _emit_states(records: list[dict[str, Any]], settings: dict[str, Any]) -> Non
 		print(_format_state(record))
 
 
+def _print_renames(records: list[dict[str, Any]]) -> None:
+	for record in records:
+		if not record.get("reachable", True):
+			print(f"{record['name']}: offline ({record.get('error', 'unreachable')})")
+		elif "error" in record:
+			print(f"{record['name']}: failed ({record['error']})")
+		else:
+			print(f"{record['name']}: renamed to {record['display_name']}")
+
+
+def _print_power_on(records: list[dict[str, Any]]) -> None:
+	for record in records:
+		if not record.get("reachable", True):
+			print(f"{record['name']}: offline ({record.get('error', 'unreachable')})")
+		elif "error" in record:
+			print(f"{record['name']}: failed ({record['error']})")
+		else:
+			print(
+				f"{record['name']}: {record['power_on_behavior_label']} "
+				f"({record['power_on_behavior']}), default brightness "
+				f"{record['power_on_brightness']}%, default warmth "
+				f"{record['power_on_warmth']}% "
+				f"({record['power_on_temperature_mired']} mired, "
+				f"{record['power_on_kelvin']} K)"
+			)
+
+
 def _run_list(config: Config, settings: dict[str, Any]) -> int:
 	if settings["json"]:
 		print(json.dumps([device.to_dict() for device in config.devices], indent=2))
@@ -436,7 +563,18 @@ def run(args: argparse.Namespace) -> int:
 	config = Config.load(config_path(settings["config"]))
 	if args.command == "list":
 		return _run_list(config, settings)
-	default_all = args.command in {"status", "info"}
+	if args.command == "rename":
+		device = config.find(args.device)
+		name = validate_display_name(args.new_name)
+		record = _rename_record(device, settings, name)
+		if settings["json"]:
+			print(json.dumps([record], indent=2))
+		else:
+			_print_renames([record])
+		return _exit_code([record])
+	default_all = args.command in {"status", "info"} or (
+		args.command == "power-on" and args.power_on_mode is None
+	)
 	devices = _resolve_devices(args, config, default_all=default_all)
 
 	if args.command == "status":
@@ -517,6 +655,32 @@ def run(args: argparse.Namespace) -> int:
 			lambda device: _apply_record(device, settings, lambda client: client.update(**update), args.wait),
 		)
 		_emit_states(records, settings)
+		return _exit_code(records)
+
+	if args.command == "power-on":
+		if args.power_on_mode != POWER_ON_RESTORE_DEFAULTS and any(
+			value is not None for value in (args.brightness, args.warmth, args.kelvin, args.temperature)
+		):
+			raise CommandError("--brightness, --warmth, --kelvin, and --temperature need --defaults")
+		update: dict[str, Any] = {}
+		if args.power_on_mode is not None:
+			update["powerOnBehavior"] = args.power_on_mode
+		if args.brightness is not None:
+			update["powerOnBrightness"] = validate_brightness(args.brightness)
+		if args.warmth is not None:
+			update["powerOnTemperature"] = validate_warmth(args.warmth)
+		if args.kelvin is not None:
+			update["powerOnTemperature"] = kelvin_to_mired(args.kelvin)
+		if args.temperature is not None:
+			update["powerOnTemperature"] = validate_temperature(args.temperature)
+		records = _parallel(
+			devices,
+			lambda device: _power_on_record(device, settings, update, args.wait),
+		)
+		if settings["json"]:
+			print(json.dumps(records, indent=2))
+		else:
+			_print_power_on(records)
 		return _exit_code(records)
 
 	if args.command == "identify":

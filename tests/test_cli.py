@@ -77,6 +77,64 @@ def test_unknown_device(config_path: Path, capsys: Any) -> None:
 	assert "unknown device: Nope" in capsys.readouterr().err
 
 
+def test_rename(config_path: Path, server: Any, capsys: Any) -> None:
+	assert main(["rename", "Test", "Desk Lamp", "--config", str(config_path)]) == 0
+	assert server.info["displayName"] == "Desk Lamp"
+	assert "renamed to Desk Lamp" in capsys.readouterr().out
+
+
+def test_rename_rejects_empty(config_path: Path, capsys: Any) -> None:
+	assert main(["rename", "Test", "", "--config", str(config_path)]) == 2
+	assert "must not be empty" in capsys.readouterr().err
+
+
+def test_rename_rejects_long_name(config_path: Path, capsys: Any) -> None:
+	assert main(["rename", "Test", "x" * 64, "--config", str(config_path)]) == 2
+	assert "63 bytes or fewer" in capsys.readouterr().err
+
+
+def test_rename_rejects_multibyte_over_limit(config_path: Path, capsys: Any) -> None:
+	assert main(["rename", "Test", "é" * 32, "--config", str(config_path)]) == 2
+	assert "63 bytes or fewer" in capsys.readouterr().err
+
+
+def test_power_on_show(config_path: Path, capsys: Any) -> None:
+	assert main(["power-on", "--json", "--config", str(config_path)]) == 0
+	output = json.loads(capsys.readouterr().out)
+	assert output[0]["power_on_behavior"] == 1
+	assert output[0]["power_on_behavior_label"] == "restore last used"
+
+
+def test_power_on_defaults(config_path: Path, server: Any, capsys: Any) -> None:
+	assert main(
+		[
+			"power-on",
+			"--defaults",
+			"--brightness",
+			"25",
+			"--warmth",
+			"50",
+			"--config",
+			str(config_path),
+		]
+	) == 0
+	assert server.settings["powerOnBehavior"] == 2
+	assert server.settings["powerOnBrightness"] == 25
+	assert server.settings["powerOnTemperature"] == 244
+	assert "restore defaults" in capsys.readouterr().out
+
+
+def test_power_on_last(config_path: Path, server: Any, capsys: Any) -> None:
+	server.settings["powerOnBehavior"] = 2
+	assert main(["power-on", "--last", "--config", str(config_path)]) == 0
+	assert server.settings["powerOnBehavior"] == 1
+
+
+def test_power_on_options_need_defaults(config_path: Path, capsys: Any) -> None:
+	assert main(["power-on", "--brightness", "25", "--config", str(config_path)]) == 2
+	assert "need --defaults" in capsys.readouterr().err
+
+
 def test_info_hides_identity(config_path: Path, capsys: Any) -> None:
 	assert main(["info", "--config", str(config_path)]) == 0
 	output = capsys.readouterr().out
