@@ -42,10 +42,19 @@ The Optoli actions appear in the action list.
 - **Get Light State** — read the power, brightness, and warmth.
 - **Rename Light** — change the light display name.
 - **Set Power-On Behaviour** — restore the last setting, or restore defaults.
+- **Pulse Light** — pulse brightness, warmth, or both, then restore the original values.
 
 The **Lights** parameter is a multi-select picker.
 Select one or more lights, or **All Lights**.
 The **Rename Light** action uses a single-light picker.
+
+Pulse parameters:
+
+- **Count** — number of pulses, 1 to 20.
+- **Duration** — duration of one pulse in milliseconds.
+- **Ease** — linear, ease in, ease out, or ease in out.
+- **Target** — brightness, temperature, or both.
+- **Peak Value** — peak percentage for the selected properties.
 
 ## Local network permission
 

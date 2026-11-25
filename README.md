@@ -31,10 +31,10 @@ Serial numbers and MAC addresses are discarded by the client.
 - Power-on behaviour: restore the last setting, or restore defaults.
 - WiFi icon with SSID, frequency, RSSI, and quality on hover.
 - mDNS discovery.
-- Native Apple Shortcuts actions with a multi-select light picker.
+- Native Apple Shortcuts actions with a multi-select light picker and per-action icons.
 - Link lights or individual controls with Command-click.
-- Group All button for linking every light.
-- Drag to reorder the lights.
+- Pulse brightness, warmth, or both, then restore the original values.
+- Drag anywhere on a card to reorder. Dropping on another card swaps their positions.
 - Live refresh while the app is open.
 - Native app icon.
 - JSON output from the CLI.
@@ -76,7 +76,8 @@ Click the lightbulb in the menu bar.
 
 Hold Command and click a card, toggle, or slider to link lights.
 Linked items change together.
-Drag the handle at the left of a card to reorder it.
+Drag anywhere on a card to reorder it.
+Dropping a card on another card swaps their positions.
 The app refreshes every five seconds while it is open.
 
 ## Install for Shortcuts
@@ -149,6 +150,8 @@ optoli rename Right "Desk Right"
 optoli power-on
 optoli power-on --defaults --brightness 20 --warmth 35 --all
 optoli power-on --last --all
+optoli pulse --count 3 --duration 600 --ease ease-in-out --target both --value 100
+optoli pulse Left --count 1 --duration 300 --ease linear --target brightness --value 80
 optoli info
 optoli discover
 ```

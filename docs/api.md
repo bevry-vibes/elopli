@@ -290,6 +290,14 @@ Send an empty body.
 The light flashes.
 The response is HTTP 200 with an empty body.
 
+## Pulse (client-side)
+
+The light has no pulse endpoint.
+The client ramps brightness or temperature to a peak and back with repeated `PUT` requests.
+It uses `durationMs` on each step and applies the easing curve in the client.
+The pulse restores the exact original on, brightness, and temperature values when it finishes.
+If the light was off, the client turns it on for the pulse and turns it off again at the end.
+
 ## Errors
 
 An error response uses this shape:
