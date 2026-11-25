@@ -152,6 +152,22 @@ impl Config {
 		true
 	}
 
+	pub fn reorder(&mut self, names: &[String]) -> Result<()> {
+		let mut reordered = Vec::with_capacity(self.devices.len());
+		for name in names {
+			if let Some(index) = self
+				.devices
+				.iter()
+				.position(|device| device.name.eq_ignore_ascii_case(name))
+			{
+				reordered.push(self.devices.remove(index));
+			}
+		}
+		reordered.append(&mut self.devices);
+		self.devices = reordered;
+		Ok(())
+	}
+
 	pub fn to_json(&self) -> Value {
 		json!({
 			"path": self.path.display().to_string(),

@@ -1,6 +1,6 @@
 use crate::error::{OptoliError, Result};
 
-pub const BRIGHTNESS_MIN: u8 = 0;
+pub const BRIGHTNESS_MIN: u8 = 2;
 pub const BRIGHTNESS_MAX: u8 = 100;
 pub const MIRED_MIN: u16 = 143;
 pub const MIRED_MAX: u16 = 344;

@@ -252,6 +252,8 @@ fn round_trips_power_on_settings() {
 
 #[test]
 fn validation_rejects_out_of_range_values() {
+	assert!(validate_brightness(1.0).is_err());
+	assert!(validate_brightness(2.0).is_ok());
 	assert!(validate_brightness(101.0).is_err());
 	assert!(validate_temperature(100.0).is_err());
 	assert!(validate_warmth(101.0).is_err());

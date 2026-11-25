@@ -205,6 +205,21 @@ impl FfiClient {
 		Ok(self.inner.set_on(on)?.into())
 	}
 
+	pub fn set_on_with_brightness(
+		&self,
+		on: bool,
+		brightness: Option<u8>,
+	) -> Result<FfiLightState, FfiError> {
+		Ok(self
+			.inner
+			.update(Update {
+				on: Some(on),
+				brightness,
+				..Update::default()
+			})?
+			.into())
+	}
+
 	pub fn toggle(&self) -> Result<FfiLightState, FfiError> {
 		Ok(self.inner.toggle()?.into())
 	}
@@ -327,6 +342,11 @@ impl FfiConfig {
 
 	pub fn add(&self, name: String, host: String, port: u16) -> Result<bool, FfiError> {
 		Ok(self.lock()?.add(Device { name, host, port }))
+	}
+
+	pub fn reorder(&self, names: Vec<String>) -> Result<(), FfiError> {
+		self.lock()?.reorder(&names)?;
+		Ok(())
 	}
 
 	pub fn save(&self) -> Result<(), FfiError> {
