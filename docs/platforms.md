@@ -20,6 +20,7 @@ It is not a shared UI implementation: grouping, live slider writes, registry rel
 - Discovery requires IPv4 mDNS; devices without an IPv4 address are not added.
 - Animations require a persistent native HTTP connection and never use `curl`.
 - A superseded animation restores the original state before the next action writes.
+- The FFI is synchronous. Run its network calls on a worker thread until async wrappers exist.
 
 ## Per-platform work
 

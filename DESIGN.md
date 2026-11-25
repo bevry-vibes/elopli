@@ -408,5 +408,6 @@ The group actions run the same animation on every member of the group.
 - Scoop bucket and portable ZIP; Inno Setup is shelved.
 - A stable public repository remote for Elopli.
 - Accessibility, keyboard navigation, and localization are deferred until after v1.
+- The FFI is synchronous; a Windows/Linux UI must call it on a worker thread until async wrappers exist.
 - Extract the remaining macOS session logic (link graph, slider coordinator, discovery rows) into a shared crate before the Windows/Linux UIs.
 - Add a Windows/Linux CI matrix and real-hardware smoke tests.
