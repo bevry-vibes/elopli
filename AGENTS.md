@@ -10,11 +10,11 @@ this process is documented in the upstream repo's [local tweaks pattern](https:/
 - https://github.com/bevry-vibes/skills/blob/main/author.md — **applies**. Agent commits carry the co-author trailer. Agent posts carry the assisted-by trailer. Agent commits are never signed.
 - https://github.com/bevry-vibes/skills/blob/main/commits.md — **applies**. Conventional Commits, one logical change per commit.
 - https://github.com/bevry-vibes/skills/blob/main/plans.md — **applies**. Plan files live in `.plans/` with a prompt companion.
-- https://github.com/bevry-vibes/skills/blob/main/python.md — **applies**. The exploration CLI uses uv and the Python standard library.
-- https://github.com/bevry-vibes/skills/blob/main/build.md — **applies** when the project adds a menu-bar app. The current project has no app bundle.
-- https://github.com/bevry-vibes/skills/blob/main/zig.md — **does not apply**. Zig is a candidate for the official client, not a chosen language.
+- https://github.com/bevry-vibes/skills/blob/main/build.md — **applies**. The macOS app is a menu-bar app with no Dock icon.
+- https://github.com/bevry-vibes/skills/blob/main/python.md — **does not apply**. The Python reference CLI is retired.
+- https://github.com/bevry-vibes/skills/blob/main/zig.md — **does not apply**. The project uses Rust, Swift, and future native UIs.
 - https://github.com/bevry-vibes/skills/blob/main/emdash.md — **does not apply**. The project has no CMS.
-- https://github.com/bevry-vibes/skills/blob/main/powershell.md — **does not apply**. The project targets macOS and Linux.
+- https://github.com/bevry-vibes/skills/blob/main/powershell.md — **does not apply**. The project targets macOS, Linux, and Windows with native UIs.
 - https://github.com/bevry-vibes/skills/blob/main/zcode.md — **does not apply**. The harness is OpenCode.
 - https://github.com/bevry-vibes/skills/blob/main/minimax.md — **does not apply**. The model is DeepSeek.
 
@@ -25,3 +25,7 @@ this process is documented in the upstream repo's [local tweaks pattern](https:/
 - The API has no authentication and no encryption. Use it only on a trusted local network.
 - Keep the CLI non-interactive and usable from Apple Shortcuts. Support absolute paths and JSON output.
 - Read [docs/api.md](docs/api.md) before a change to the protocol layer.
+- The macOS app uses SwiftUI `MenuBarExtra`, `LSUIElement`, and App Intents. It calls the Rust core through UniFFI.
+- Build the macOS app with `./scripts/build-macos.sh`.
+- Do not commit `apps/macos/Optoli/Generated`, `apps/macos/Optoli/build`, or `apps/macos/Optoli/Optoli.xcodeproj`. They are build artifacts.
+- Keep the Rust core free of UI and platform code. The CLI and the app are thin wrappers.
