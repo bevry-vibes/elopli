@@ -21,20 +21,42 @@ Decisions:
 - Rust to Swift bridge: UniFFI.
 - Packaging: AppImage via Soar now. Flatpak later.
 - Windows distribution: Scoop bucket plus a portable ZIP. Inno Setup later.
-- Code signing: self-signing only. All paid and OSS signing programmes are shelved.
+- Code signing: ad-hoc for the app. Native App Intents require a free Apple ID Personal Team. Paid signing is shelved.
 - Fallbacks, shelved: C# WinUI 3, Vala, AppKit.
-- Implementation has not started.
+- Implementation has started.
 
-The Python reference CLI is temporary.
-It keeps the `keylight` command during the port.
-Remove it after the Rust CLI reaches parity.
+## implementation status
+
+Done and verified on macOS 27.2.1:
+
+- `optoli-core`: HTTP, config, mDNS discovery, validation, power-on settings.
+- `optoli` CLI: status, power, brightness, warmth, Kelvin, mired, set, rename, power-on, identify, info, discover, list, config.
+- `optoli-ffi`: UniFFI records and objects.
+- Fake-device integration tests: 6 passing.
+- macOS app: SwiftUI `MenuBarExtra` with cards, WiFi tooltips, sliders, rename, power-on, and App Intents.
+- App build script and headless smoke test.
+
+Pending:
+
+- Windows Reactor spike.
+- Windows WinUI 3 app.
+- Linux GTK 4 app.
+- AppImage via Soar.
+- Scoop manifest.
+
+Important finding:
+
+- The ad-hoc signed app is rejected by `linkd` for App Intents with `Unable to get teamId`.
+- Native Shortcuts need a team-signed bundle.
+- A free Apple ID Personal Team is enough. The paid Developer Program is not required.
+- Without a team, the CLI through **Run Shell Script** remains the Shortcuts path.
 
 ## context
 
 Elgato Control Center removed its Apple Shortcuts actions.
 The three lights still answer a local HTTP API on port 9123.
 The API is cracked and verified. See [docs/api.md](../docs/api.md).
-A Python CLI proves the interface and controls all three lights now.
+The Rust CLI and the macOS app now use that API.
 
 Optoli must run on macOS, Linux, and Windows.
 It must be native, with no webview.
@@ -247,11 +269,34 @@ Resources:
 
 ### macOS SwiftUI
 
+Implemented in `apps/macos/Optoli`.
+
 Use `MenuBarExtra` with `.menuBarExtraStyle(.window)`.
 Set `LSUIElement=true` to hide the Dock icon.
 The menu-bar window is a popover, not a draggable window.
 Add App Intents in the same app target.
 Link the Rust core through UniFFI.
+
+Build:
+
+```sh
+./scripts/build-macos.sh
+open apps/macos/Optoli/build/Build/Products/Debug/Optoli.app
+```
+
+The app is ad-hoc signed by default.
+That is enough for the card interface and the CLI.
+
+App Intents need a team-signed bundle.
+`linkd` rejects ad-hoc apps with `Unable to get teamId`.
+Use a free Apple ID Personal Team in Xcode:
+
+```sh
+DEVELOPMENT_TEAM=XXXXXXXXXX ./scripts/build-macos.sh
+```
+
+The paid Apple Developer Program is not required for local App Intents.
+Without a team, use the CLI through **Run Shell Script**.
 
 Useful pieces:
 
@@ -585,20 +630,18 @@ Do not keep a second user-facing CLI.
 
 ## phases
 
-1. Use the Python CLI as the temporary oracle. [docs/api.md](../docs/api.md) is the protocol source of truth.
-2. Build `optoli-core` and the `optoli` Rust CLI.
-3. Spike `windows-reactor` against the checklist.
-4. Build the macOS SwiftUI app and App Intents with UniFFI.
-5. Build the Windows app, or the C# fallback.
-6. Build the Linux GTK 4 app with `ksni`.
-7. Build the AppImage and publish it through Soar.
-8. Build the Scoop manifest and CI release flow.
-9. Add self-signing and release automation.
-10. Remove the Python CLI after parity, or keep it as a dev-only test tool.
+1. Done: use the Python CLI as the temporary oracle. It is retired.
+2. Done: build `optoli-core` and the `optoli` Rust CLI.
+3. Done: build the macOS SwiftUI app and App Intents with UniFFI.
+4. Next: spike `windows-reactor` against the checklist.
+5. Next: build the Windows app, or the C# fallback.
+6. Next: build the Linux GTK 4 app with `ksni`.
+7. Next: build the AppImage and publish it through Soar.
+8. Next: build the Scoop manifest and CI release flow.
+9. Next: add self-signing and release automation.
 
 ## open questions
 
-1. Windows: does the Reactor spike pass the borderless and no-taskbar checklist?
-2. Should the repository be renamed to Optoli now?
+1. Do you want to sign in to Xcode with a free Apple ID Personal Team to enable native App Intents?
+2. Windows: does the Reactor spike pass the borderless and no-taskbar checklist?
 3. Windows GUI and CLI naming: is `Optoli.exe` plus `optoli-cli.exe` with an `optoli` shim acceptable?
-4. Retire the Python CLI after parity, or keep it as a dev-only test tool?

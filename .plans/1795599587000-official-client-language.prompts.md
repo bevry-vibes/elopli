@@ -111,3 +111,11 @@ use uniffi
 ## follow-up prompt 7
 
 Justify keeping the python reference cli, once the rust cli from the shared rust core is done?
+
+## follow-up prompt 8
+
+Okay, local folder now renamed `optoli`. We are now ready to start implementation. The prior art (which seemed you never needed to consult) already are python tools, so we don't need to persist out python copy, so we can just replace it with subsequent commits.
+
+We are good to now do macos option, we are on an m1 mac mini now running macos 27.2.1 (26B131)
+
+Once we have the macos interface down, we'll move to the other devices.
