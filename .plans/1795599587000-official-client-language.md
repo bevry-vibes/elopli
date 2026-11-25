@@ -2,6 +2,8 @@ Assisted-by: OpenCode · DeepSeek V4.1 Flash <opencode-opencodego-deepseekv41fla
 
 Companion: [1795599587000-official-client-language.prompts.md](./1795599587000-official-client-language.prompts.md)
 
+Evergreen decisions: [DESIGN.md](../DESIGN.md)
+
 # Elopli: native per-platform client with a Rust core
 
 ## status

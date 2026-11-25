@@ -10,6 +10,7 @@ this process is documented in the upstream repo's [local tweaks pattern](https:/
 - https://github.com/bevry-vibes/skills/blob/main/author.md — **applies**. Agent commits carry the co-author trailer. Agent posts carry the assisted-by trailer. Agent commits are never signed.
 - https://github.com/bevry-vibes/skills/blob/main/commits.md — **applies**. Conventional Commits, one logical change per commit.
 - https://github.com/bevry-vibes/skills/blob/main/plans.md — **applies**. Plan files live in `.plans/` with a prompt companion.
+- https://github.com/bevry-vibes/skills/blob/main/design.md — **applies**. Evergreen decisions live in `DESIGN.md`; dated history lives in `.plans/`.
 - https://github.com/bevry-vibes/skills/blob/main/build.md — **applies**. The macOS app is a menu-bar app with no Dock icon.
 - https://github.com/bevry-vibes/skills/blob/main/python.md — **does not apply**. The Python reference CLI is retired.
 - https://github.com/bevry-vibes/skills/blob/main/zig.md — **does not apply**. The project uses Rust, Swift, and future native UIs.
@@ -25,6 +26,7 @@ this process is documented in the upstream repo's [local tweaks pattern](https:/
 - The API has no authentication and no encryption. Use it only on a trusted local network.
 - Keep the CLI non-interactive and usable from Apple Shortcuts. Support absolute paths and JSON output.
 - Read [docs/api.md](docs/api.md) before a change to the protocol layer.
+- Update [DESIGN.md](DESIGN.md) when an evergreen decision changes. It records what is true now; it is not a changelog.
 - The macOS app uses SwiftUI `MenuBarExtra`, `LSUIElement`, and App Intents. It calls the Rust core through UniFFI.
 - Build the macOS app with `./scripts/build-macos.sh`.
 - Do not commit `apps/macos/Elopli/Generated`, `apps/macos/Elopli/build`, or `apps/macos/Elopli/Elopli.xcodeproj`. They are build artifacts.

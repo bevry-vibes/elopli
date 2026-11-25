@@ -8,6 +8,8 @@ Each card has power, brightness, warmth, WiFi details, rename, and power-on beha
 The app has no Dock icon and no draggable window.
 It appears in the menu bar.
 
+Evergreen design decisions are in [DESIGN.md](DESIGN.md).
+
 ## Status
 
 macOS is implemented.
@@ -37,9 +39,9 @@ Serial numbers and MAC addresses are discarded by the client.
   Set the low to 2% or higher to keep the light on during each pulse.
   An off light starts and ends off: count 1 runs off → peak → off.
   The duration is split by distance across the initial rise, each fade, and the final restore.
-  The app sends its own immediate keyframes so the duration stays exact.
+  The app sends its own immediate keyframes at up to 10 Hz, or one per percent when the duration allows, so the duration stays exact.
   A new action stops a running pulse, and a pulse stops itself when the light changes elsewhere.
-  The client uses one persistent connection and splits every fade below the firmware's 1000 ms limit.
+  The client uses one persistent connection and never sends animation frames over `curl`.
 - Sweep temperature from warmest to coolest and back to warmest for each count, then restore the original values.
   A sweep can hold a fixed brightness for the whole animation.
 - Pulse and sweep editors in each light's menu.
@@ -65,8 +67,8 @@ The small HTTP server is sensitive to bursts of short-lived connections.
 Clients that keep one connection open do better than clients that open a connection per request.
 Elopli therefore:
 
-- keeps a native HTTP connection open and only falls back to `curl` when macOS denies local network access;
-- leaves at least 120 ms between native frames and 250 ms between `curl` frames;
+- keeps a native HTTP connection open and refuses to animate when only `curl` is available;
+- sends native keyframes at up to 10 Hz, or one per percent when the duration allows;
 - pauses refresh polling for the light that is pulsing.
 
 Practical steps:
