@@ -4,9 +4,9 @@ use std::time::{Duration, Instant};
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use optoli_core::{
-	Config, Device, LightState, OptoliClient, OptoliError, PowerOnBehavior, Result, TransportMode,
-	Update, config_path, discover, kelvin_to_mired, validate_brightness, validate_display_name,
-	validate_temperature, validate_warmth,
+	Config, Device, LightState, OptoliClient, OptoliError, PowerOnBehavior, PulseConfig, PulseEase,
+	PulseTarget, Result, TransportMode, Update, config_path, discover, kelvin_to_mired,
+	validate_brightness, validate_display_name, validate_temperature, validate_warmth,
 };
 use rayon::prelude::*;
 use serde_json::{Map, Value, json};
@@ -16,6 +16,42 @@ enum TransportArg {
 	Auto,
 	Native,
 	Curl,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum PulseEaseArg {
+	Linear,
+	EaseIn,
+	EaseOut,
+	EaseInOut,
+}
+
+impl From<PulseEaseArg> for PulseEase {
+	fn from(value: PulseEaseArg) -> Self {
+		match value {
+			PulseEaseArg::Linear => Self::Linear,
+			PulseEaseArg::EaseIn => Self::EaseIn,
+			PulseEaseArg::EaseOut => Self::EaseOut,
+			PulseEaseArg::EaseInOut => Self::EaseInOut,
+		}
+	}
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum PulseTargetArg {
+	Brightness,
+	Temperature,
+	Both,
+}
+
+impl From<PulseTargetArg> for PulseTarget {
+	fn from(value: PulseTargetArg) -> Self {
+		match value {
+			PulseTargetArg::Brightness => Self::Brightness,
+			PulseTargetArg::Temperature => Self::Temperature,
+			PulseTargetArg::Both => Self::Both,
+		}
+	}
 }
 
 impl From<TransportArg> for TransportMode {
@@ -92,6 +128,8 @@ enum Command {
 	Rename(RenameArgs),
 	#[command(about = "read or set the power-on behaviour")]
 	PowerOn(PowerOnArgs),
+	#[command(about = "pulse brightness or temperature and restore the original values")]
+	Pulse(PulseArgs),
 	#[command(about = "flash one or more lights")]
 	Identify(TargetArgs),
 	#[command(about = "read product and network details")]
@@ -229,6 +267,49 @@ struct DiscoverArgs {
 	wait: f64,
 	#[arg(long, help = "add the found devices to the registry")]
 	write: bool,
+}
+
+#[derive(Debug, Args)]
+struct PulseArgs {
+	#[command(flatten)]
+	targets: TargetArgs,
+	#[arg(
+		long,
+		default_value_t = 3,
+		value_parser = clap::value_parser!(u32).range(1..=20),
+		help = "number of pulses (default 3)"
+	)]
+	count: u32,
+	#[arg(
+		long,
+		default_value_t = 600,
+		value_parser = clap::value_parser!(u32).range(50..=10000),
+		value_name = "MS",
+		help = "duration of one pulse in milliseconds (default 600)"
+	)]
+	duration: u32,
+	#[arg(
+		long,
+		value_enum,
+		default_value_t = PulseEaseArg::EaseInOut,
+		help = "easing curve (default ease-in-out)"
+	)]
+	ease: PulseEaseArg,
+	#[arg(
+		long,
+		value_enum,
+		default_value_t = PulseTargetArg::Both,
+		help = "property to pulse (default both)"
+	)]
+	target: PulseTargetArg,
+	#[arg(
+		long,
+		default_value_t = 100,
+		value_parser = clap::value_parser!(u8).range(0..=100),
+		value_name = "PERCENT",
+		help = "peak value in percent (default 100)"
+	)]
+	value: u8,
 }
 
 #[derive(Debug, Args)]
@@ -418,6 +499,25 @@ fn rename_record(device: &Device, settings: &Settings, name: &str) -> Value {
 			let mut record = base(device);
 			record.insert("reachable".into(), json!(true));
 			record.insert("display_name".into(), json!(display_name));
+			Value::Object(record)
+		}
+		Err(error) => error_record(device, &error),
+	}
+}
+
+fn pulse_record(device: &Device, settings: &Settings, config: PulseConfig) -> Value {
+	let client = client(device, settings);
+	match client.pulse(config) {
+		Ok(state) => {
+			let mut record = base(device);
+			record.insert("reachable".into(), json!(true));
+			record.insert("state".into(), json!(if state.on { "on" } else { "off" }));
+			merge(&mut record, state.to_json());
+			record.insert("pulse_count".into(), json!(config.count));
+			record.insert("pulse_duration_ms".into(), json!(config.duration_ms));
+			record.insert("pulse_ease".into(), json!(config.ease.label()));
+			record.insert("pulse_target".into(), json!(config.target.label()));
+			record.insert("pulse_value".into(), json!(config.value));
 			Value::Object(record)
 		}
 		Err(error) => error_record(device, &error),
@@ -759,6 +859,55 @@ fn print_renames(records: &[Value]) {
 					.unwrap_or("?")
 			);
 		}
+	}
+}
+
+fn print_pulses(records: &[Value]) {
+	for record in records {
+		let name = record.get("name").and_then(Value::as_str).unwrap_or("?");
+		if record.get("reachable").and_then(Value::as_bool) != Some(true) {
+			println!(
+				"{name}: offline ({})",
+				record
+					.get("error")
+					.and_then(Value::as_str)
+					.unwrap_or("unreachable")
+			);
+			continue;
+		}
+		if let Some(error) = record.get("error").and_then(Value::as_str) {
+			println!("{name}: failed ({error})");
+			continue;
+		}
+		println!(
+			"{name}: pulsed {}× over {} ms ({} {}, peak {}%); final {}, brightness {}%, warmth {}%",
+			record
+				.get("pulse_count")
+				.and_then(Value::as_u64)
+				.unwrap_or(0),
+			record
+				.get("pulse_duration_ms")
+				.and_then(Value::as_u64)
+				.unwrap_or(0),
+			record
+				.get("pulse_ease")
+				.and_then(Value::as_str)
+				.unwrap_or("?"),
+			record
+				.get("pulse_target")
+				.and_then(Value::as_str)
+				.unwrap_or("?"),
+			record
+				.get("pulse_value")
+				.and_then(Value::as_u64)
+				.unwrap_or(0),
+			record.get("state").and_then(Value::as_str).unwrap_or("?"),
+			record
+				.get("brightness")
+				.and_then(Value::as_u64)
+				.unwrap_or(0),
+			record.get("warmth").and_then(Value::as_u64).unwrap_or(0)
+		);
 	}
 }
 
@@ -1146,6 +1295,25 @@ fn run(cli: Cli) -> Result<u8> {
 				print_json(&Value::Array(records.clone()));
 			} else {
 				print_power_on(&records);
+			}
+			Ok(exit_code(&records))
+		}
+		Command::Pulse(args) => {
+			let prompt_config = PulseConfig {
+				count: args.count,
+				duration_ms: args.duration,
+				ease: args.ease.into(),
+				target: args.target.into(),
+				value: args.value,
+			};
+			let devices = resolve_devices(&args.targets, &config, false)?;
+			let records = parallel(&devices, |device| {
+				pulse_record(device, &settings, prompt_config)
+			});
+			if settings.json {
+				print_json(&Value::Array(records.clone()));
+			} else {
+				print_pulses(&records);
 			}
 			Ok(exit_code(&records))
 		}

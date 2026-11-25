@@ -2,8 +2,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use optoli_core::{
-	OptoliClient, PowerOnBehavior, TransportMode, Update, validate_brightness,
-	validate_display_name, validate_temperature, validate_warmth,
+	OptoliClient, PowerOnBehavior, PulseConfig, PulseEase, PulseTarget, TransportMode, Update,
+	validate_brightness, validate_display_name, validate_temperature, validate_warmth,
 };
 use serde_json::{Value, json};
 use tiny_http::{Header, Method, Response, Server};
@@ -20,6 +20,7 @@ struct FakeState {
 	power_on_brightness: u8,
 	power_on_temperature: u16,
 	last_update: Option<Value>,
+	updates: Vec<Value>,
 	last_settings: Option<Value>,
 }
 
@@ -89,6 +90,7 @@ fn start_server() -> (u16, Arc<Mutex<FakeState>>) {
 		power_on_brightness: 20,
 		power_on_temperature: 213,
 		last_update: None,
+		updates: Vec::new(),
 		last_settings: None,
 	}));
 	let shared = Arc::clone(&state);
@@ -104,6 +106,7 @@ fn start_server() -> (u16, Arc<Mutex<FakeState>>) {
 				(Method::Put, "/elgato/lights") => {
 					let payload: Value = serde_json::from_str(&body).unwrap();
 					state.last_update = Some(payload.clone());
+					state.updates.push(payload.clone());
 					if let Some(light) = payload
 						.get("lights")
 						.and_then(Value::as_array)
@@ -248,6 +251,32 @@ fn round_trips_power_on_settings() {
 	assert_eq!(last.behavior, PowerOnBehavior::RestoreLast);
 	assert_eq!(last.brightness, 25);
 	assert_eq!(last.temperature, 244);
+}
+
+#[test]
+fn pulse_restores_the_original_state() {
+	let (port, state) = start_server();
+	let client = client(port);
+	let original = client.state().unwrap();
+
+	let result = client
+		.pulse(PulseConfig {
+			count: 1,
+			duration_ms: 100,
+			ease: PulseEase::Linear,
+			target: PulseTarget::Brightness,
+			value: 80,
+		})
+		.unwrap();
+	assert_eq!(result, original);
+
+	let updates = state.lock().unwrap().updates.clone();
+	assert!(
+		updates
+			.iter()
+			.any(|update| { update["lights"][0]["brightness"].as_u64() == Some(80) })
+	);
+	assert_eq!(client.state().unwrap(), original);
 }
 
 #[test]

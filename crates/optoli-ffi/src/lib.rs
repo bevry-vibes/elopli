@@ -4,8 +4,8 @@ use std::sync::{Arc, Mutex};
 
 use optoli_core::{
 	AccessoryInfo, Config, Device, DiscoveredDevice, LightState, OptoliClient, OptoliError,
-	PowerOnBehavior, PowerOnSettings, Snapshot, TransportMode, Update, WifiInfo, config_path,
-	discover as discover_core, kelvin_to_mired, validate_warmth,
+	PowerOnBehavior, PowerOnSettings, PulseConfig, PulseEase, PulseTarget, Snapshot, TransportMode,
+	Update, WifiInfo, config_path, discover as discover_core, kelvin_to_mired, validate_warmth,
 };
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
@@ -162,6 +162,42 @@ impl From<DiscoveredDevice> for FfiDiscoveredDevice {
 	}
 }
 
+#[derive(Debug, Clone, Copy, uniffi::Enum)]
+pub enum FfiPulseEase {
+	Linear,
+	EaseIn,
+	EaseOut,
+	EaseInOut,
+}
+
+impl From<FfiPulseEase> for PulseEase {
+	fn from(value: FfiPulseEase) -> Self {
+		match value {
+			FfiPulseEase::Linear => Self::Linear,
+			FfiPulseEase::EaseIn => Self::EaseIn,
+			FfiPulseEase::EaseOut => Self::EaseOut,
+			FfiPulseEase::EaseInOut => Self::EaseInOut,
+		}
+	}
+}
+
+#[derive(Debug, Clone, Copy, uniffi::Enum)]
+pub enum FfiPulseTarget {
+	Brightness,
+	Temperature,
+	Both,
+}
+
+impl From<FfiPulseTarget> for PulseTarget {
+	fn from(value: FfiPulseTarget) -> Self {
+		match value {
+			FfiPulseTarget::Brightness => Self::Brightness,
+			FfiPulseTarget::Temperature => Self::Temperature,
+			FfiPulseTarget::Both => Self::Both,
+		}
+	}
+}
+
 #[derive(uniffi::Object)]
 pub struct FfiClient {
 	inner: OptoliClient,
@@ -288,6 +324,24 @@ impl FfiClient {
 
 	pub fn power_on_settings(&self) -> Result<FfiPowerOnSettings, FfiError> {
 		Ok(self.inner.power_on_settings()?.into())
+	}
+
+	pub fn pulse(
+		&self,
+		count: u32,
+		duration_ms: u32,
+		ease: FfiPulseEase,
+		target: FfiPulseTarget,
+		value: u8,
+	) -> Result<FfiLightState, FfiError> {
+		let state = self.inner.pulse(PulseConfig {
+			count,
+			duration_ms,
+			ease: ease.into(),
+			target: target.into(),
+			value,
+		})?;
+		Ok(state.into())
 	}
 
 	pub fn set_power_on(

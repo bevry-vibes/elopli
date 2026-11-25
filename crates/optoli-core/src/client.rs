@@ -7,8 +7,11 @@ use crate::model::{
 	AccessoryInfo, LightState, PowerOnBehavior, PowerOnSettings, Snapshot, Update,
 	parse_accessory_info, parse_error_messages, parse_power_on_settings, parse_state,
 };
+use crate::pulse::PulseConfig;
 use crate::transport::{HttpTransport, TransportMode, build_transport};
-use crate::validate::{validate_brightness, validate_display_name, validate_temperature};
+use crate::validate::{
+	validate_brightness, validate_display_name, validate_temperature, warmth_to_mired,
+};
 
 pub struct OptoliClient {
 	host: String,
@@ -195,4 +198,92 @@ impl OptoliClient {
 		)?;
 		Ok(self.info()?.display_name)
 	}
+
+	pub fn pulse(&self, config: PulseConfig) -> Result<LightState> {
+		config.validate()?;
+		let original = self.state()?;
+		let result = self.run_pulse(config, original);
+		let restore = self.restore_state(original);
+		match (result, restore) {
+			(Err(error), _) => Err(error),
+			(Ok(()), Err(error)) => Err(error),
+			(Ok(()), Ok(())) => Ok(original),
+		}
+	}
+
+	fn run_pulse(&self, config: PulseConfig, original: LightState) -> Result<()> {
+		let base_brightness = original.brightness.max(2);
+		let base_temperature = original.temperature;
+		let peak_brightness = if config.target.includes_brightness() {
+			config.value.clamp(2, 100)
+		} else {
+			base_brightness
+		};
+		let peak_temperature = if config.target.includes_temperature() {
+			warmth_to_mired(f64::from(config.value))?
+		} else {
+			base_temperature
+		};
+
+		if !original.on {
+			self.update(Update {
+				on: Some(true),
+				brightness: Some(base_brightness),
+				temperature: Some(base_temperature),
+				..Update::default()
+			})?;
+		}
+
+		let ramp_ms = config.duration_ms / 2;
+		let steps = (ramp_ms / 50).max(2);
+		let step_ms = (ramp_ms / steps).max(10);
+
+		for _ in 0..config.count {
+			for step in 1..=steps {
+				let progress = config.ease.apply(f64::from(step) / f64::from(steps));
+				let brightness = lerp_u8(base_brightness, peak_brightness, progress);
+				let temperature = lerp_u16(base_temperature, peak_temperature, progress);
+				self.update(Update {
+					brightness: Some(brightness),
+					temperature: Some(temperature),
+					duration_ms: Some(step_ms),
+					..Update::default()
+				})?;
+				std::thread::sleep(std::time::Duration::from_millis(u64::from(step_ms)));
+			}
+			for step in 1..=steps {
+				let progress = config.ease.apply(f64::from(step) / f64::from(steps));
+				let brightness = lerp_u8(peak_brightness, base_brightness, progress);
+				let temperature = lerp_u16(peak_temperature, base_temperature, progress);
+				self.update(Update {
+					brightness: Some(brightness),
+					temperature: Some(temperature),
+					duration_ms: Some(step_ms),
+					..Update::default()
+				})?;
+				std::thread::sleep(std::time::Duration::from_millis(u64::from(step_ms)));
+			}
+		}
+		Ok(())
+	}
+
+	fn restore_state(&self, state: LightState) -> Result<()> {
+		let payload = json!({
+			"lights": [{
+				"on": u8::from(state.on),
+				"brightness": state.brightness,
+				"temperature": state.temperature,
+			}],
+		});
+		self.request("PUT", "/elgato/lights", Some(&payload))?;
+		Ok(())
+	}
+}
+
+fn lerp_u8(from: u8, to: u8, progress: f64) -> u8 {
+	(f64::from(from) + (f64::from(to) - f64::from(from)) * progress).round() as u8
+}
+
+fn lerp_u16(from: u16, to: u16, progress: f64) -> u16 {
+	(f64::from(from) + (f64::from(to) - f64::from(from)) * progress).round() as u16
 }
