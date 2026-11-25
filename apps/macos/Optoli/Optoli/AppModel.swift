@@ -49,7 +49,7 @@ final class AppModel: ObservableObject {
 
 	private var config: FfiConfig?
 	private var eventMonitor: Any?
-	private let linkGroupsKey = "OptoliLinkGroups"
+	private let linkGroupsKey = "OptoliLinkGroupsV2"
 
 	init() {
 		do {
@@ -315,31 +315,14 @@ final class AppModel: ObservableObject {
 		}
 	}
 
-	func moveDevice(_ name: String, before target: String) {
+	func moveDevice(_ name: String, onto target: String) {
 		guard let from = devices.firstIndex(where: { $0.name == name }),
 			let to = devices.firstIndex(where: { $0.name == target }),
 			from != to
 		else {
 			return
 		}
-		var updated = devices
-		let item = updated.remove(at: from)
-		let insertion = from < to ? to - 1 : to
-		updated.insert(item, at: max(0, min(insertion, updated.count)))
-		devices = updated
-		persistOrder()
-	}
-
-	func moveDeviceToEnd(_ name: String) {
-		guard let from = devices.firstIndex(where: { $0.name == name }),
-			from != devices.count - 1
-		else {
-			return
-		}
-		var updated = devices
-		let item = updated.remove(at: from)
-		updated.append(item)
-		devices = updated
+		devices.swapAt(from, to)
 		persistOrder()
 	}
 
@@ -358,15 +341,21 @@ final class AppModel: ObservableObject {
 
 	func toggleLinkSelection(_ kind: LinkKind, device: LightDevice) {
 		guard commandDown else { return }
+		if kind != .card && isInCardGroup(device.name) {
+			return
+		}
 		let target = LinkTarget(device: device.name, kind: kind)
 		if selectedLinks.contains(target) {
 			selectedLinks.remove(target)
-			return
+		} else {
+			selectedLinks.insert(target)
 		}
-		if let existing = selectedLinks.first, existing.kind != kind {
-			selectedLinks.removeAll()
+	}
+
+	func isInCardGroup(_ deviceName: String) -> Bool {
+		linkGroups.contains {
+			$0.kind == .card && $0.deviceNames.contains(deviceName)
 		}
-		selectedLinks.insert(target)
 	}
 
 	func resetLinkInteraction() {
@@ -389,36 +378,17 @@ final class AppModel: ObservableObject {
 	}
 
 	func isLinked(_ target: LinkTarget) -> Bool {
-		if linkGroups.contains(where: {
-			$0.kind == .card && $0.deviceNames.contains(target.device)
-		}) {
-			return true
-		}
 		if target.kind == .card {
+			return linkGroups.contains {
+				$0.kind == .card && $0.deviceNames.contains(target.device)
+			}
+		}
+		if isInCardGroup(target.device) {
 			return false
 		}
-		return linkGroups.contains(where: {
+		return linkGroups.contains {
 			$0.kind == target.kind && $0.deviceNames.contains(target.device)
-		})
-	}
-
-	var allLightsGrouped: Bool {
-		let names = Set(devices.map(\.name))
-		return devices.count > 1 && linkGroups.contains {
-			$0.kind == .card && Set($0.deviceNames) == names
 		}
-	}
-
-	func groupAll() {
-		guard devices.count > 1 else { return }
-		let names = devices.map(\.name)
-		if allLightsGrouped {
-			linkGroups.removeAll { $0.kind == .card }
-		} else {
-			linkGroups.removeAll { $0.kind == .card }
-			linkGroups.append(LinkGroup(kind: .card, deviceNames: names))
-		}
-		saveLinkGroups()
 	}
 
 	private func linkedDeviceNames(for device: String, kind: LinkKind) -> [String] {
@@ -440,27 +410,50 @@ final class AppModel: ObservableObject {
 
 	private func commitLinkSelection() {
 		guard !selectedLinks.isEmpty else { return }
-		let kinds = Set(selectedLinks.map(\.kind))
-		guard kinds.count == 1, let kind = kinds.first else {
-			selectedLinks.removeAll()
-			return
-		}
-		let names = Array(Set(selectedLinks.map(\.device)))
+		let grouped = Dictionary(grouping: selectedLinks, by: \.kind)
 		selectedLinks.removeAll()
-		if names.count == 1 {
-			unlink(name: names[0], kind: kind)
-		} else {
-			link(kind: kind, names: names.sorted())
+		for kind in [LinkKind.power, .brightness, .warmth, .card] {
+			guard let targets = grouped[kind] else { continue }
+			let names = Array(Set(targets.map(\.device)))
+			if names.count >= 2 {
+				link(kind: kind, names: names.sorted())
+			} else if let name = names.first {
+				unlink(name: name, kind: kind)
+			}
 		}
 		saveLinkGroups()
 	}
 
 	private func link(kind: LinkKind, names: [String]) {
 		for index in linkGroups.indices {
-			linkGroups[index].deviceNames.removeAll { names.contains($0) }
+			if linkGroups[index].kind == .card {
+				linkGroups[index].deviceNames.removeAll { names.contains($0) }
+			} else if kind == .card || linkGroups[index].kind == kind {
+				linkGroups[index].deviceNames.removeAll { names.contains($0) }
+			}
 		}
-		linkGroups.removeAll { $0.kind == kind && $0.deviceNames.count < 2 }
-		linkGroups.append(LinkGroup(kind: kind, deviceNames: names))
+		linkGroups.removeAll { $0.deviceNames.count < 2 }
+		linkGroups.append(LinkGroup(kind: kind, deviceNames: names.sorted()))
+		if kind != .card {
+			promoteToCardIfComplete(names)
+		}
+	}
+
+	private func promoteToCardIfComplete(_ names: [String]) {
+		let target = Set(names)
+		let kinds: [LinkKind] = [.power, .brightness, .warmth]
+		var groups: [LinkGroup] = []
+		for kind in kinds {
+			guard let group = linkGroups.first(where: {
+				$0.kind == kind && Set($0.deviceNames) == target
+			}) else {
+				return
+			}
+			groups.append(group)
+		}
+		let ids = Set(groups.map(\.id))
+		linkGroups.removeAll { ids.contains($0.id) }
+		linkGroups.append(LinkGroup(kind: .card, deviceNames: names.sorted()))
 	}
 
 	private func unlink(name: String, kind: LinkKind) {
@@ -478,6 +471,7 @@ final class AppModel: ObservableObject {
 		}
 		linkGroups = groups
 		pruneLinkGroups()
+		normalizeLinkGroups()
 	}
 
 	private func saveLinkGroups() {
@@ -494,6 +488,38 @@ final class AppModel: ObservableObject {
 				return group
 			}
 			.filter { $0.deviceNames.count >= 2 }
+	}
+
+	private func normalizeLinkGroups() {
+		let cardDevices = Set(
+			linkGroups
+				.filter { $0.kind == .card }
+				.flatMap(\.deviceNames)
+		)
+		for index in linkGroups.indices where linkGroups[index].kind != .card {
+			linkGroups[index].deviceNames.removeAll { cardDevices.contains($0) }
+		}
+		linkGroups.removeAll { $0.deviceNames.count < 2 }
+
+		let candidates = Set(
+			linkGroups
+				.filter { $0.kind != .card }
+				.map { Set($0.deviceNames) }
+		)
+		for candidate in candidates where candidate.count >= 2 {
+			let kinds: [LinkKind] = [.power, .brightness, .warmth]
+			let groups = kinds.compactMap { kind in
+				linkGroups.first {
+					$0.kind == kind && Set($0.deviceNames) == candidate
+				}
+			}
+			guard groups.count == 3 else { continue }
+			let ids = Set(groups.map(\.id))
+			linkGroups.removeAll { ids.contains($0.id) }
+			linkGroups.append(
+				LinkGroup(kind: .card, deviceNames: candidate.sorted())
+			)
+		}
 	}
 
 	private func setError(_ device: LightDevice, _ error: Error) {

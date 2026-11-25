@@ -118,27 +118,6 @@ struct ContentView: View {
 					ForEach(model.devices) { device in
 						LightCardView(model: model, device: device)
 					}
-
-					Text("Drop here to move last")
-						.font(.caption2)
-						.foregroundStyle(.tertiary)
-						.frame(maxWidth: .infinity)
-						.padding(8)
-						.background(
-							RoundedRectangle(cornerRadius: 8)
-								.strokeBorder(
-									.quaternary,
-									style: StrokeStyle(
-										lineWidth: 1,
-										dash: [4]
-									)
-								)
-						)
-						.dropDestination(for: String.self) { items, _ in
-							guard let name = items.first else { return false }
-							model.moveDeviceToEnd(name)
-							return true
-						}
 				}
 			}
 		}
@@ -161,11 +140,6 @@ struct ContentView: View {
 						}
 					}
 				}
-				Button(model.allLightsGrouped ? "Ungroup All" : "Group All") {
-					model.groupAll()
-				}
-				.disabled(model.devices.count < 2)
-				.help("Link every light so one change applies to all")
 				Spacer()
 				Text("\(model.devices.count) lights")
 					.font(.caption)

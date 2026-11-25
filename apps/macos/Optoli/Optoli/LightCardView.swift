@@ -44,6 +44,9 @@ struct LightCardView: View {
 		)
 		.overlay(linkBorder(.card, cornerRadius: 18))
 		.contentShape(Rectangle())
+		.onDrag {
+			NSItemProvider(object: device.name as NSString)
+		}
 		.onTapGesture {
 			if model.commandDown {
 				model.toggleLinkSelection(.card, device: device)
@@ -58,7 +61,7 @@ struct LightCardView: View {
 		}
 		.dropDestination(for: String.self) { items, _ in
 			guard let name = items.first else { return false }
-			model.moveDevice(name, before: device.name)
+			model.moveDevice(name, onto: device.name)
 			return true
 		}
 		.onAppear {
@@ -85,20 +88,6 @@ struct LightCardView: View {
 
 	private var header: some View {
 		HStack(alignment: .top, spacing: 8) {
-			Image(systemName: "line.3.horizontal")
-				.font(.caption2)
-				.foregroundStyle(.tertiary)
-				.padding(.top, 5)
-				.onDrag {
-					NSItemProvider(object: device.name as NSString)
-				}
-				.help("Drag to reorder")
-
-			Circle()
-				.fill(statusColor)
-				.frame(width: 8, height: 8)
-				.padding(.top, 6)
-
 			VStack(alignment: .leading, spacing: 2) {
 				Text(device.name)
 					.font(.headline)
@@ -286,13 +275,6 @@ struct LightCardView: View {
 				lineWidth: 2
 			)
 			.allowsHitTesting(false)
-	}
-
-	private var statusColor: Color {
-		if device.error != nil {
-			return .red
-		}
-		return isEffectivelyOn ? .green : .secondary
 	}
 
 	private var isEffectivelyOn: Bool {
