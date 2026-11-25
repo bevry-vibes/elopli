@@ -48,7 +48,7 @@ The Elopli actions appear in the action list.
 A new action stops a running pulse and applies its own change.
 A pulse also stops when the light changes outside Elopli, and that external change is preserved.
 Pulse frames are paced conservatively to avoid overloading the light's HTTP server.
-A native client animates every 50 ms; the `curl` fallback animates at most every 250 ms.
+A native client leaves at least 120 ms between frames; the `curl` fallback leaves at least 250 ms.
 
 The **Lights** parameter is a multi-select picker.
 Select one or more lights, or **All Lights**.

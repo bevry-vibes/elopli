@@ -88,7 +88,9 @@ impl Default for NativeTransport {
 
 impl HttpTransport for NativeTransport {
 	fn pulse_frame_ms(&self) -> u32 {
-		50
+		// The light's colorChangeDurationMs defaults to 100 ms. Sending a
+		// new target sooner interrupts the fade before it settles.
+		120
 	}
 
 	fn request(

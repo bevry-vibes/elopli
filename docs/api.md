@@ -315,7 +315,7 @@ The light's HTTP server is fragile under bursts of short-lived connections, and 
 - [python-elgato](https://github.com/frenck/python-elgato) shares one `aiohttp` session for all requests.
 - [Harness Automation](https://docs.harnessautomation.com/gem/admin/drivers/elgato_key_light) notes that the HTTP server on stale firmware occasionally locks up and needs a power cycle.
 
-A native client that keeps one HTTP connection open sends a frame every 50 ms.
+A native client that keeps one HTTP connection open sends a frame at most every 120 ms, leaving the light's 100 ms fade time to finish.
 The `curl` fallback opens a new connection per request, so it sends a frame at most every 250 ms.
 That keeps request pressure low enough for the light's connection table.
 Easing is visible when the duration is long enough for more than one frame.

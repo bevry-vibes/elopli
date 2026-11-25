@@ -62,7 +62,7 @@ Clients that keep one connection open do better than clients that open a connect
 Elopli therefore:
 
 - keeps a native HTTP connection open and only falls back to `curl` when macOS denies local network access;
-- spaces `curl` pulse frames by 250 ms;
+- leaves at least 120 ms between native frames and 250 ms between `curl` frames;
 - pauses refresh polling for the light that is pulsing.
 
 Practical steps:

@@ -466,7 +466,7 @@ impl ElopliClient {
 		includes_temperature: bool,
 		expected: &mut LightState,
 	) -> Result<Option<PulseOutcome>> {
-		let frame_ms = self.transport.pulse_frame_ms().max(10);
+		let frame_ms = self.transport.pulse_frame_ms().max(120);
 		// Hold the endpoint briefly so peaks and minima are visible even when
 		// the whole animation is short.
 		let hold_ms = (ramp_ms / 5).max(1).min(ramp_ms / 2).max(1);
