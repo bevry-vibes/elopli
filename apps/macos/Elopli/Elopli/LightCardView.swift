@@ -38,7 +38,19 @@ struct LightCardView: View {
 		}
 		.padding(14)
 		.frame(maxWidth: .infinity, alignment: .leading)
-		.background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
+		.background {
+			RoundedRectangle(cornerRadius: 18)
+				.fill(.regularMaterial)
+				.shadow(
+					color: isEffectivelyOn
+						? temperatureColor(warmth)
+							.opacity(0.18 + 0.35 * shadowStrength)
+						: .clear,
+					radius: 6 + 8 * CGFloat(shadowStrength),
+					x: 0,
+					y: 4
+				)
+		}
 		.overlay(
 			RoundedRectangle(cornerRadius: 18)
 				.stroke(.quaternary, lineWidth: 1)
@@ -143,6 +155,7 @@ struct LightCardView: View {
 				value: $brightness,
 				range: 2...100,
 				color: temperatureColor(warmth),
+				isLightOn: isEffectivelyOn,
 				onEditingChanged: { editing in
 					isEditingBrightness = editing
 					if !editing {
@@ -186,10 +199,10 @@ struct LightCardView: View {
 			GradientSlider(
 				value: $warmth,
 				range: 0...100,
-				gradient: Gradient(colors: [
-					temperatureColor(0),
-					temperatureColor(50),
-					temperatureColor(100),
+				gradient: Gradient(stops: [
+					.init(color: temperatureColor(0), location: 0),
+					.init(color: temperatureColor(40), location: 0.4),
+					.init(color: temperatureColor(100), location: 1),
 				]),
 				thumbColor: temperatureColor(warmth),
 				onEditingChanged: { editing in
@@ -282,6 +295,11 @@ struct LightCardView: View {
 		device.state?.on == true && (device.state?.brightness ?? 0) >= 2
 	}
 
+	private var shadowStrength: Double {
+		guard isEffectivelyOn else { return 0 }
+		return min(1, max(0, (brightness - 2) / 98))
+	}
+
 	private var brightnessLabel: String {
 		if isEditingBrightness {
 			return "\(Int(brightness.rounded()))%"
@@ -323,11 +341,11 @@ struct LightCardView: View {
 	) -> (r: Double, g: Double, b: Double) {
 		let t = min(1, max(0, warmth / 100))
 		let cool = (r: 0.55, g: 0.77, b: 1.0)
-		let neutral = (r: 1.0, g: 0.93, b: 0.82)
+		let white = (r: 1.0, g: 1.0, b: 1.0)
 		let warm = (r: 1.0, g: 0.62, b: 0.29)
-		let (from, to, factor) = t < 0.5
-			? (cool, neutral, t * 2)
-			: (neutral, warm, (t - 0.5) * 2)
+		let (from, to, factor) = t < 0.4
+			? (cool, white, t / 0.4)
+			: (white, warm, (t - 0.4) / 0.6)
 		return (
 			r: from.r + (to.r - from.r) * factor,
 			g: from.g + (to.g - from.g) * factor,

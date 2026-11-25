@@ -69,7 +69,7 @@ struct PulseSheet: View {
 		VStack(alignment: .leading, spacing: 14) {
 			Text("Pulse \(device.name)")
 				.font(.title3.bold())
-			Text("Ramp the light to a peak and restore its original values.")
+			Text("Each pulse is one peak-to-0 fade. Count 3 runs peak → 0 three times, then restores the original values.")
 				.font(.caption)
 				.foregroundStyle(.secondary)
 

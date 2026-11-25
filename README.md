@@ -31,7 +31,8 @@ Serial numbers and MAC addresses are discarded by the client.
 - mDNS discovery.
 - Native Apple Shortcuts actions with a multi-select light picker and per-action icons.
 - Link lights or individual controls with Command-click.
-- Pulse brightness, warmth, or both, then restore the original values.
+- Pulse brightness, warmth, or both from the current value to a peak, then through peak-to-0 cycles, then back to the original values.
+  A count of 3 means three peak-to-0 fades.
   A new action stops a running pulse, and a pulse stops itself when the light changes elsewhere.
   Pulse frames are paced to the transport so the light's small HTTP server is not flooded.
 - Pulse editor in each light's menu with count, duration, ease, target, and peak value.

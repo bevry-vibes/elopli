@@ -22,7 +22,6 @@ struct ContentView: View {
 					.lineLimit(2)
 			}
 			content
-			footer
 		}
 		.padding(18)
 		.frame(width: 460, height: 640)
@@ -131,7 +130,11 @@ struct ContentView: View {
 					ForEach(model.devices) { device in
 						LightCardView(model: model, device: device)
 					}
+					footer
+						.padding(.top, 2)
 				}
+				.padding(.vertical, 4)
+				.padding(.horizontal, 4)
 			}
 		}
 	}

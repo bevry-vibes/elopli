@@ -294,10 +294,19 @@ The response is HTTP 200 with an empty body.
 
 The light has no pulse endpoint.
 `POST /elgato/identify` flashes the light, but it is not configurable.
-The client ramps brightness or temperature to a peak and back with repeated `PUT` requests.
-It uses `durationMs` on each frame and applies the easing curve in the client.
+The client ramps brightness or temperature from the current value to a peak, then down to 0% and back to the peak for each count.
+A count of 3 is:
+
+```text
+current → peak → 0 → peak → 0 → peak → 0 → original
+```
+
+The last 0% returns to the original values instead of another peak.
+Brightness 0% switches the light off for that phase; the next peak turns it on again.
+Temperature 0% is the coolest end of the range, not off.
 The pulse restores the exact original on, brightness, and temperature values when it finishes.
 If the light was off, the client turns it on for the pulse and turns it off again at the end.
+An interrupting action applies its own value and the pulse does not restore over it.
 
 The pulse is deliberately conservative.
 The light's HTTP server is fragile under bursts of short-lived connections, and prior art limits write pressure:

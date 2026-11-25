@@ -8,7 +8,7 @@ use crate::model::{
 	AccessoryInfo, LightState, PowerOnBehavior, PowerOnSettings, Snapshot, Update,
 	parse_accessory_info, parse_error_messages, parse_power_on_settings, parse_state,
 };
-use crate::pulse::{PulseCancellation, PulseConfig, PulseOutcome};
+use crate::pulse::{PulseCancellation, PulseConfig, PulseEase, PulseOutcome};
 use crate::transport::{HttpTransport, TransportMode, build_transport};
 use crate::validate::{
 	validate_brightness, validate_display_name, validate_temperature, warmth_to_mired,
@@ -105,6 +105,15 @@ impl ElopliClient {
 	}
 
 	fn write_update(&self, update: Update) -> Result<LightState> {
+		self.send_update(update, false)
+	}
+
+	/// Pulse frames may reach 0% brightness, which switches the light off.
+	fn write_pulse_update(&self, update: Update) -> Result<LightState> {
+		self.send_update(update, true)
+	}
+
+	fn send_update(&self, update: Update, allow_zero_brightness: bool) -> Result<LightState> {
 		if update.is_empty() {
 			return Err(ElopliError::InvalidValue(
 				"no properties were provided".into(),
@@ -115,10 +124,12 @@ impl ElopliClient {
 			light.insert("on".into(), json!(u8::from(on)));
 		}
 		if let Some(brightness) = update.brightness {
-			light.insert(
-				"brightness".into(),
-				json!(validate_brightness(f64::from(brightness))?),
-			);
+			let brightness = if allow_zero_brightness {
+				brightness.min(100)
+			} else {
+				validate_brightness(f64::from(brightness))?
+			};
+			light.insert("brightness".into(), json!(brightness));
 		}
 		if let Some(temperature) = update.temperature {
 			light.insert(
@@ -242,64 +253,107 @@ impl ElopliClient {
 		original: LightState,
 		token: &str,
 	) -> Result<PulseOutcome> {
-		let base_brightness = original.brightness.max(2);
-		let base_temperature = original.temperature;
-		let peak_brightness = if config.target.includes_brightness() {
+		let includes_brightness = config.target.includes_brightness();
+		let includes_temperature = config.target.includes_temperature();
+		let peak_brightness = if includes_brightness {
 			config.value.clamp(2, 100)
 		} else {
-			base_brightness
+			original.brightness
 		};
-		let peak_temperature = if config.target.includes_temperature() {
+		let peak_temperature = if includes_temperature {
 			warmth_to_mired(f64::from(config.value))?
 		} else {
-			base_temperature
+			original.temperature
 		};
+		let low_temperature = if includes_temperature {
+			warmth_to_mired(0.0)?
+		} else {
+			original.temperature
+		};
+		let ramp_ms = (config.duration_ms / 2).max(10);
 
 		let mut expected = original;
-		if !original.on {
-			expected = self.write_update(Update {
+		if !original.on && !includes_brightness {
+			// A temperature-only pulse still needs a visible brightness.
+			expected = self.write_pulse_update(Update {
 				on: Some(true),
-				brightness: Some(base_brightness),
-				temperature: Some(base_temperature),
+				brightness: Some(2),
 				..Update::default()
 			})?;
 		}
 
-		let ramp_ms = config.duration_ms / 2;
-		let frame_ms = self.transport.pulse_frame_ms().max(10);
-		let steps = (ramp_ms / frame_ms).max(1);
-		let step_ms = (ramp_ms / steps).max(10);
+		// Current state to the first peak.
+		if let Some(outcome) = self.ramp_to(
+			token,
+			expected,
+			peak_brightness,
+			peak_temperature,
+			Some(true),
+			ramp_ms,
+			config.ease,
+			includes_brightness,
+			includes_temperature,
+			&mut expected,
+		)? {
+			return Ok(outcome);
+		}
 
-		for _ in 0..config.count {
-			for step in 1..=steps {
-				if let Some(outcome) = self.cancelled(token, &expected)? {
-					return Ok(outcome);
-				}
-				let progress = config.ease.apply(f64::from(step) / f64::from(steps));
-				let brightness = lerp_u8(base_brightness, peak_brightness, progress);
-				let temperature = lerp_u16(base_temperature, peak_temperature, progress);
-				expected = self.write_update(Update {
-					brightness: Some(brightness),
-					temperature: Some(temperature),
-					duration_ms: Some(step_ms),
-					..Update::default()
-				})?;
-				std::thread::sleep(std::time::Duration::from_millis(u64::from(step_ms)));
+		for cycle in 0..config.count {
+			// Every pulse is a peak-to-0 transition.
+			if let Some(outcome) = self.ramp_to(
+				token,
+				expected,
+				0,
+				low_temperature,
+				if includes_brightness {
+					Some(false)
+				} else {
+					None
+				},
+				ramp_ms,
+				config.ease,
+				includes_brightness,
+				includes_temperature,
+				&mut expected,
+			)? {
+				return Ok(outcome);
 			}
-			for step in 1..=steps {
-				if let Some(outcome) = self.cancelled(token, &expected)? {
+
+			if cycle + 1 < config.count {
+				if let Some(outcome) = self.ramp_to(
+					token,
+					expected,
+					peak_brightness,
+					peak_temperature,
+					Some(true),
+					ramp_ms,
+					config.ease,
+					includes_brightness,
+					includes_temperature,
+					&mut expected,
+				)? {
 					return Ok(outcome);
 				}
-				let progress = config.ease.apply(f64::from(step) / f64::from(steps));
-				let brightness = lerp_u8(peak_brightness, base_brightness, progress);
-				let temperature = lerp_u16(peak_temperature, base_temperature, progress);
-				expected = self.write_update(Update {
-					brightness: Some(brightness),
-					temperature: Some(temperature),
-					duration_ms: Some(step_ms),
-					..Update::default()
-				})?;
-				std::thread::sleep(std::time::Duration::from_millis(u64::from(step_ms)));
+			}
+		}
+
+		// Return to the value the light had before the pulse. If an action
+		// interrupted the pulse, that action has already applied its value
+		// and the pulse stopped without restoring.
+		if original.on && (includes_brightness || includes_temperature) {
+			if let Some(outcome) = self.ramp_to(
+				token,
+				expected,
+				original.brightness,
+				original.temperature,
+				Some(true),
+				ramp_ms,
+				config.ease,
+				includes_brightness,
+				includes_temperature,
+				&mut expected,
+			)? {
+				return Ok(outcome);
 			}
 		}
 
@@ -308,6 +362,46 @@ impl ElopliClient {
 		}
 		self.restore_state(original)?;
 		Ok(PulseOutcome::Completed(original))
+	}
+
+	#[allow(clippy::too_many_arguments)]
+	fn ramp_to(
+		&self,
+		token: &str,
+		from: LightState,
+		to_brightness: u8,
+		to_temperature: u16,
+		on: Option<bool>,
+		ramp_ms: u32,
+		ease: PulseEase,
+		includes_brightness: bool,
+		includes_temperature: bool,
+		expected: &mut LightState,
+	) -> Result<Option<PulseOutcome>> {
+		let frame_ms = self.transport.pulse_frame_ms().max(10);
+		let steps = (ramp_ms / frame_ms).max(1);
+		let step_ms = (ramp_ms / steps).max(10);
+
+		for step in 1..=steps {
+			if let Some(outcome) = self.cancelled(token, expected)? {
+				return Ok(Some(outcome));
+			}
+			let progress = ease.apply(f64::from(step) / f64::from(steps));
+			let mut update = Update {
+				on,
+				duration_ms: Some(step_ms),
+				..Update::default()
+			};
+			if includes_brightness {
+				update.brightness = Some(lerp_u8(from.brightness, to_brightness, progress));
+			}
+			if includes_temperature {
+				update.temperature = Some(lerp_u16(from.temperature, to_temperature, progress));
+			}
+			*expected = self.write_pulse_update(update)?;
+			std::thread::sleep(std::time::Duration::from_millis(u64::from(step_ms)));
+		}
+		Ok(None)
 	}
 
 	/// Return an outcome when a pulse should stop, or keep going.

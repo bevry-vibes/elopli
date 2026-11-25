@@ -277,7 +277,7 @@ struct PulseArgs {
 		long,
 		default_value_t = 3,
 		value_parser = clap::value_parser!(u32).range(1..=20),
-		help = "number of pulses (default 3)"
+		help = "number of peak-to-0 pulses (default 3)"
 	)]
 	count: u32,
 	#[arg(

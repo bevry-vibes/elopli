@@ -351,6 +351,36 @@ fn pulse_stops_and_preserves_an_external_change() {
 }
 
 #[test]
+fn pulse_runs_peak_to_zero_once_per_count() {
+	let (port, state) = start_server();
+	let client = client(port);
+	let original = client.state().unwrap();
+
+	let result = client
+		.pulse(PulseConfig {
+			count: 3,
+			duration_ms: 100,
+			ease: PulseEase::Linear,
+			target: PulseTarget::Brightness,
+			value: 80,
+		})
+		.unwrap();
+	assert!(result.completed());
+	assert_eq!(result.state(), &original);
+
+	let updates = state.lock().unwrap().updates.clone();
+	let zeros = updates
+		.iter()
+		.filter(|update| {
+			let light = &update["lights"][0];
+			light["on"].as_u64() == Some(0) && light["brightness"].as_u64() == Some(0)
+		})
+		.count();
+	assert_eq!(zeros, 3);
+	assert_eq!(client.state().unwrap(), original);
+}
+
+#[test]
 fn validation_rejects_out_of_range_values() {
 	assert!(validate_brightness(1.0).is_err());
 	assert!(validate_brightness(2.0).is_ok());

@@ -40,6 +40,7 @@ struct TaperedBrightnessSlider: View {
 	@Binding var value: Double
 	let range: ClosedRange<Double>
 	let color: Color
+	let isLightOn: Bool
 	var onEditingChanged: (Bool) -> Void = { _ in }
 
 	@State private var isDragging = false
@@ -60,12 +61,14 @@ struct TaperedBrightnessSlider: View {
 			let glowDiameter = thumbSize + glowSize
 
 			ZStack(alignment: .leading) {
-				Circle()
-					.fill(color.opacity(0.55))
-					.frame(width: glowDiameter, height: glowDiameter)
-					.blur(radius: 7)
-					.offset(x: x - glowSize / 2)
-					.allowsHitTesting(false)
+				if isLightOn || isDragging {
+					Circle()
+						.fill(color.opacity(0.55))
+						.frame(width: glowDiameter, height: glowDiameter)
+						.blur(radius: 7)
+						.offset(x: x - glowSize / 2)
+						.allowsHitTesting(false)
+				}
 
 				TaperedCapsule(leftHeight: 3, rightHeight: 12)
 					.fill(color)

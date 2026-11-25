@@ -55,8 +55,8 @@ The **Rename Light** action uses a single-light picker.
 
 Pulse parameters:
 
-- **Count** — number of pulses, 1 to 20.
-- **Duration** — duration of one pulse in milliseconds.
+- **Count** — number of peak-to-0 pulses, 1 to 20.
+- **Duration** — duration of one peak-to-0-to-peak cycle in milliseconds.
 - **Ease** — linear, ease in, ease out, or ease in out.
 - **Target** — brightness, temperature, or both.
 - **Peak Value** — peak percentage for the selected properties.
