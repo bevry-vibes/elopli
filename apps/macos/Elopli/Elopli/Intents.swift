@@ -368,7 +368,6 @@ enum PulseEaseChoice: String, AppEnum {
 enum PulseTargetChoice: String, AppEnum {
 	case brightness
 	case temperature
-	case both
 
 	static var typeDisplayRepresentation = TypeDisplayRepresentation(
 		name: "Pulse Target"
@@ -376,14 +375,12 @@ enum PulseTargetChoice: String, AppEnum {
 	static var caseDisplayRepresentations: [Self: DisplayRepresentation] = [
 		.brightness: "Brightness",
 		.temperature: "Temperature",
-		.both: "Both",
 	]
 
 	var value: FfiPulseTarget {
 		switch self {
 		case .brightness: return .brightness
 		case .temperature: return .temperature
-		case .both: return .both
 		}
 	}
 }
@@ -420,10 +417,10 @@ struct PulseIntent: AppIntent {
 	)
 	var durationMs: Int
 
-	@Parameter(title: "Ease", default: .easeInOut)
+	@Parameter(title: "Ease", default: .linear)
 	var ease: PulseEaseChoice
 
-	@Parameter(title: "Target", default: .both)
+	@Parameter(title: "Target", default: .brightness)
 	var target: PulseTargetChoice
 
 	@Parameter(

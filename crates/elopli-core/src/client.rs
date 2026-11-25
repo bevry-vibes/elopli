@@ -270,6 +270,9 @@ impl ElopliClient {
 		} else {
 			original.temperature
 		};
+		// The light treats anything below 2% as off. The UI presents that
+		// minimum as 0%, so the pulse keeps the light on at 2%.
+		let low_brightness = 2;
 		let ramp_ms = (config.duration_ms / 2).max(10);
 
 		let mut expected = original;
@@ -299,17 +302,14 @@ impl ElopliClient {
 		}
 
 		for cycle in 0..config.count {
-			// Every pulse is a peak-to-0 transition.
+			// Every pulse is a peak-to-0 transition. The light stays on at
+			// its 2% minimum, which the UI labels as 0%.
 			if let Some(outcome) = self.ramp_to(
 				token,
 				expected,
-				0,
+				low_brightness,
 				low_temperature,
-				if includes_brightness {
-					Some(false)
-				} else {
-					None
-				},
+				None,
 				ramp_ms,
 				config.ease,
 				includes_brightness,

@@ -208,7 +208,6 @@ impl From<FfiPulseEase> for PulseEase {
 pub enum FfiPulseTarget {
 	Brightness,
 	Temperature,
-	Both,
 }
 
 impl From<FfiPulseTarget> for PulseTarget {
@@ -216,7 +215,6 @@ impl From<FfiPulseTarget> for PulseTarget {
 		match value {
 			FfiPulseTarget::Brightness => Self::Brightness,
 			FfiPulseTarget::Temperature => Self::Temperature,
-			FfiPulseTarget::Both => Self::Both,
 		}
 	}
 }

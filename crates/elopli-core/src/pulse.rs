@@ -85,23 +85,21 @@ impl PulseEase {
 pub enum PulseTarget {
 	Brightness,
 	Temperature,
-	Both,
 }
 
 impl PulseTarget {
 	pub fn includes_brightness(self) -> bool {
-		matches!(self, Self::Brightness | Self::Both)
+		matches!(self, Self::Brightness)
 	}
 
 	pub fn includes_temperature(self) -> bool {
-		matches!(self, Self::Temperature | Self::Both)
+		matches!(self, Self::Temperature)
 	}
 
 	pub fn label(self) -> &'static str {
 		match self {
 			Self::Brightness => "brightness",
 			Self::Temperature => "temperature",
-			Self::Both => "both",
 		}
 	}
 }
@@ -120,8 +118,8 @@ impl Default for PulseConfig {
 		Self {
 			count: 3,
 			duration_ms: 600,
-			ease: PulseEase::EaseInOut,
-			target: PulseTarget::Both,
+			ease: PulseEase::Linear,
+			target: PulseTarget::Brightness,
 			value: 100,
 		}
 	}

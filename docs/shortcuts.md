@@ -42,7 +42,7 @@ The Elopli actions appear in the action list.
 - **Get Light State** — read the power, brightness, and warmth.
 - **Rename Light** — change the light display name.
 - **Set Power-On Behaviour** — restore the last setting, or restore defaults.
-- **Pulse Light** — pulse brightness, warmth, or both, then restore the original values.
+- **Pulse Light** — pulse brightness or warmth, then restore the original values.
 
 A new action stops a running pulse and applies its own change.
 A pulse also stops when the light changes outside Elopli, and that external change is preserved.
@@ -57,9 +57,11 @@ Pulse parameters:
 
 - **Count** — number of peak-to-0 pulses, 1 to 20.
 - **Duration** — duration of one peak-to-0-to-peak cycle in milliseconds.
-- **Ease** — linear, ease in, ease out, or ease in out.
-- **Target** — brightness, temperature, or both.
-- **Peak Value** — peak percentage for the selected properties.
+- **Ease** — linear (default), ease in, ease out, or ease in out.
+- **Target** — brightness (default) or temperature.
+- **Peak Value** — peak percentage for the selected property.
+
+For brightness, 0% is the light's 2% minimum; the light stays on at that level.
 
 ## Local network permission
 

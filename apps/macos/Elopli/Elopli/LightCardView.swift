@@ -38,19 +38,7 @@ struct LightCardView: View {
 		}
 		.padding(14)
 		.frame(maxWidth: .infinity, alignment: .leading)
-		.background {
-			RoundedRectangle(cornerRadius: 18)
-				.fill(.regularMaterial)
-				.shadow(
-					color: isEffectivelyOn
-						? temperatureColor(warmth)
-							.opacity(0.18 + 0.35 * shadowStrength)
-						: .clear,
-					radius: 6 + 8 * CGFloat(shadowStrength),
-					x: 0,
-					y: 4
-				)
-		}
+		.background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
 		.overlay(
 			RoundedRectangle(cornerRadius: 18)
 				.stroke(.quaternary, lineWidth: 1)
@@ -295,19 +283,19 @@ struct LightCardView: View {
 		device.state?.on == true && (device.state?.brightness ?? 0) >= 2
 	}
 
-	private var shadowStrength: Double {
-		guard isEffectivelyOn else { return 0 }
-		return min(1, max(0, (brightness - 2) / 98))
-	}
-
 	private var brightnessLabel: String {
 		if isEditingBrightness {
-			return "\(Int(brightness.rounded()))%"
+			return brightnessDisplay(brightness)
 		}
 		if device.state?.on == true && (device.state?.brightness ?? 0) < 2 {
 			return "off"
 		}
-		return "\(Int(brightness.rounded()))%"
+		return brightnessDisplay(brightness)
+	}
+
+	private func brightnessDisplay(_ value: Double) -> String {
+		let percent = Int(value.rounded())
+		return "\(percent <= 2 ? 0 : percent)%"
 	}
 
 	private var wifiIcon: some View {

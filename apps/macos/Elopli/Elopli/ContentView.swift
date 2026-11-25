@@ -5,6 +5,9 @@ import SwiftUI
 struct ContentView: View {
 	@ObservedObject var model: AppModel
 	@State private var showDiscovery = false
+	@State private var contentHeight: CGFloat = 500
+
+	private let maxContentHeight: CGFloat = 540
 
 	private let timer = Timer.publish(
 		every: 5,
@@ -24,7 +27,7 @@ struct ContentView: View {
 			content
 		}
 		.padding(18)
-		.frame(width: 460, height: 640)
+		.frame(width: 460)
 		.onAppear {
 			Task { await model.refresh() }
 		}
@@ -123,18 +126,30 @@ struct ContentView: View {
 					"Add devices to \(model.configPath), or scan the local network."
 				)
 			)
-			.frame(maxWidth: .infinity, maxHeight: .infinity)
+			.frame(maxWidth: .infinity)
+			.frame(height: 300)
 		} else {
 			ScrollView {
-				LazyVStack(spacing: 12) {
+				VStack(alignment: .leading, spacing: 12) {
 					ForEach(model.devices) { device in
 						LightCardView(model: model, device: device)
 					}
 					footer
 						.padding(.top, 2)
 				}
-				.padding(.vertical, 4)
-				.padding(.horizontal, 4)
+				.background {
+					GeometryReader { geometry in
+						Color.clear.preference(
+							key: PanelContentHeightKey.self,
+							value: geometry.size.height
+						)
+					}
+				}
+			}
+			.frame(height: min(contentHeight, maxContentHeight))
+			.scrollBounceBehavior(.basedOnSize)
+			.onPreferenceChange(PanelContentHeightKey.self) { height in
+				contentHeight = height
 			}
 		}
 	}
@@ -143,6 +158,14 @@ struct ContentView: View {
 		Text("Hold ⌘ and click a card, toggle, or slider to link lights. Linked items change together.")
 			.font(.caption2)
 			.foregroundStyle(.secondary)
+	}
+}
+
+private struct PanelContentHeightKey: PreferenceKey {
+	static let defaultValue: CGFloat = 0
+
+	static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+		value = max(value, nextValue())
 	}
 }
 

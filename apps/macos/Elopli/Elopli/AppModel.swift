@@ -394,7 +394,7 @@ final class AppModel: ObservableObject {
 		let target = LinkTarget(device: device.name, kind: kind)
 		if kind != .card && isInCardGroup(device.name) {
 			unlinkCardGroup(containing: device.name)
-			selectedLinks = [target]
+			selectedLinks.insert(target)
 			return
 		}
 		if selectedLinks.contains(target) {
@@ -428,7 +428,7 @@ final class AppModel: ObservableObject {
 
 	func linkColor(for target: LinkTarget) -> Color? {
 		if selectedLinks.contains(target) {
-			return Self.linkAccent
+			return Color.yellow
 		}
 		if commandDown && hoveredLink == target {
 			return Color.yellow.opacity(0.85)
@@ -454,20 +454,40 @@ final class AppModel: ObservableObject {
 	}
 
 	private func linkedDeviceNames(for device: String, kind: LinkKind) -> [String] {
-		let names: [String]
+		var names: Set<String> = [device]
 		if let card = linkGroups.first(where: {
 			$0.kind == .card && $0.deviceNames.contains(device)
 		}) {
-			names = card.deviceNames
-		} else if let group = linkGroups.first(where: {
+			names.formUnion(card.deviceNames)
+		}
+		if let group = linkGroups.first(where: {
 			$0.kind == kind && $0.deviceNames.contains(device)
 		}) {
-			names = group.deviceNames
-		} else {
-			names = [device]
+			names.formUnion(group.deviceNames)
 		}
 		let existing = Set(devices.map(\.name))
 		return names.filter { existing.contains($0) }
+	}
+
+	private func isFieldLinked(_ deviceName: String, kind: LinkKind) -> Bool {
+		if isInCardGroup(deviceName) {
+			return true
+		}
+		return linkGroups.contains {
+			$0.kind == kind && $0.deviceNames.contains(deviceName)
+		}
+	}
+
+	private func joinableNames(for deviceName: String, kind: LinkKind) -> [String]? {
+		if let group = linkGroups.first(where: {
+			$0.kind == kind && !$0.deviceNames.contains(deviceName)
+		}) {
+			return group.deviceNames
+		}
+		let card = linkGroups
+			.filter { $0.kind == .card && !$0.deviceNames.contains(deviceName) }
+			.max { $0.deviceNames.count < $1.deviceNames.count }
+		return card?.deviceNames
 	}
 
 	private func commitLinkSelection() {
@@ -480,16 +500,27 @@ final class AppModel: ObservableObject {
 			if names.count >= 2 {
 				link(kind: kind, names: names.sorted())
 			} else if let name = names.first {
-				unlink(name: name, kind: kind)
+				if kind != .card,
+					!isFieldLinked(name, kind: kind),
+					let anchor = joinableNames(for: name, kind: kind)
+				{
+					let joined = Array(Set(anchor + [name])).sorted()
+					link(kind: kind, names: joined)
+				} else {
+					unlink(name: name, kind: kind)
+				}
 			}
 		}
+		normalizeLinkGroups()
 		saveLinkGroups()
 	}
 
 	private func link(kind: LinkKind, names: [String]) {
 		for index in linkGroups.indices {
 			if linkGroups[index].kind == .card {
-				linkGroups[index].deviceNames.removeAll { names.contains($0) }
+				if kind == .card {
+					linkGroups[index].deviceNames.removeAll { names.contains($0) }
+				}
 			} else if kind == .card || linkGroups[index].kind == kind {
 				linkGroups[index].deviceNames.removeAll { names.contains($0) }
 			}
@@ -515,7 +546,12 @@ final class AppModel: ObservableObject {
 		}
 		let ids = Set(groups.map(\.id))
 		linkGroups.removeAll { ids.contains($0.id) }
-		linkGroups.append(LinkGroup(kind: .card, deviceNames: names.sorted()))
+		let hasCard = linkGroups.contains {
+			$0.kind == .card && Set($0.deviceNames) == target
+		}
+		if !hasCard {
+			linkGroups.append(LinkGroup(kind: .card, deviceNames: names.sorted()))
+		}
 	}
 
 	private func unlink(name: String, kind: LinkKind) {
@@ -562,15 +598,13 @@ final class AppModel: ObservableObject {
 	}
 
 	private func normalizeLinkGroups() {
-		let cardDevices = Set(
-			linkGroups
-				.filter { $0.kind == .card }
-				.flatMap(\.deviceNames)
-		)
-		for index in linkGroups.indices where linkGroups[index].kind != .card {
-			linkGroups[index].deviceNames.removeAll { cardDevices.contains($0) }
+		let cardSets = linkGroups
+			.filter { $0.kind == .card }
+			.map { Set($0.deviceNames) }
+		linkGroups.removeAll { group in
+			group.kind != .card
+				&& cardSets.contains { $0.isSuperset(of: Set(group.deviceNames)) }
 		}
-		linkGroups.removeAll { $0.deviceNames.count < 2 }
 
 		let candidates = Set(
 			linkGroups
@@ -587,9 +621,14 @@ final class AppModel: ObservableObject {
 			guard groups.count == 3 else { continue }
 			let ids = Set(groups.map(\.id))
 			linkGroups.removeAll { ids.contains($0.id) }
-			linkGroups.append(
-				LinkGroup(kind: .card, deviceNames: candidate.sorted())
-			)
+			let hasCard = linkGroups.contains {
+				$0.kind == .card && Set($0.deviceNames) == candidate
+			}
+			if !hasCard {
+				linkGroups.append(
+					LinkGroup(kind: .card, deviceNames: candidate.sorted())
+				)
+			}
 		}
 	}
 

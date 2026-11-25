@@ -302,7 +302,7 @@ current → peak → 0 → peak → 0 → peak → 0 → original
 ```
 
 The last 0% returns to the original values instead of another peak.
-Brightness 0% switches the light off for that phase; the next peak turns it on again.
+The 0% low point is the light's 2% minimum; the light stays on, and the UI shows that minimum as 0%.
 Temperature 0% is the coolest end of the range, not off.
 The pulse restores the exact original on, brightness, and temperature values when it finishes.
 If the light was off, the client turns it on for the pulse and turns it off again at the end.

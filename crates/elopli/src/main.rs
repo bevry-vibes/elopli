@@ -41,7 +41,6 @@ impl From<PulseEaseArg> for PulseEase {
 enum PulseTargetArg {
 	Brightness,
 	Temperature,
-	Both,
 }
 
 impl From<PulseTargetArg> for PulseTarget {
@@ -49,7 +48,6 @@ impl From<PulseTargetArg> for PulseTarget {
 		match value {
 			PulseTargetArg::Brightness => Self::Brightness,
 			PulseTargetArg::Temperature => Self::Temperature,
-			PulseTargetArg::Both => Self::Both,
 		}
 	}
 }
@@ -291,15 +289,15 @@ struct PulseArgs {
 	#[arg(
 		long,
 		value_enum,
-		default_value_t = PulseEaseArg::EaseInOut,
-		help = "easing curve (default ease-in-out)"
+		default_value_t = PulseEaseArg::Linear,
+		help = "easing curve (default linear)"
 	)]
 	ease: PulseEaseArg,
 	#[arg(
 		long,
 		value_enum,
-		default_value_t = PulseTargetArg::Both,
-		help = "property to pulse (default both)"
+		default_value_t = PulseTargetArg::Brightness,
+		help = "property to pulse (default brightness)"
 	)]
 	target: PulseTargetArg,
 	#[arg(

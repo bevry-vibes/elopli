@@ -31,8 +31,9 @@ Serial numbers and MAC addresses are discarded by the client.
 - mDNS discovery.
 - Native Apple Shortcuts actions with a multi-select light picker and per-action icons.
 - Link lights or individual controls with Command-click.
-- Pulse brightness, warmth, or both from the current value to a peak, then through peak-to-0 cycles, then back to the original values.
+- Pulse brightness or warmth from the current value to a peak, then through peak-to-0 cycles, then back to the original values.
   A count of 3 means three peak-to-0 fades.
+  For brightness, 0% is the light's 2% minimum and the light stays on.
   A new action stops a running pulse, and a pulse stops itself when the light changes elsewhere.
   Pulse frames are paced to the transport so the light's small HTTP server is not flooded.
 - Pulse editor in each light's menu with count, duration, ease, target, and peak value.
@@ -111,6 +112,9 @@ Click the lightbulb in the menu bar.
 
 Hold Command and click a card, toggle, or slider to link lights.
 Linked items change together.
+A card link is shorthand for linking all three fields on that card.
+Command-clicking a field on an unlinked card joins that field to the matching group without linking its power or other fields.
+Pending selections use the yellow highlight; committed links use magenta.
 Drag anywhere on a card to reorder it.
 Dropping a card on another card swaps their positions.
 The app refreshes every five seconds while it is open.
@@ -185,7 +189,7 @@ elopli rename Right "Desk Right"
 elopli power-on
 elopli power-on --defaults --brightness 20 --warmth 35 --all
 elopli power-on --last --all
-elopli pulse --count 3 --duration 600 --ease ease-in-out --target both --value 100
+elopli pulse --count 3 --duration 600 --ease linear --target brightness --value 100
 elopli pulse Left --count 1 --duration 300 --ease linear --target brightness --value 80
 elopli info
 elopli discover

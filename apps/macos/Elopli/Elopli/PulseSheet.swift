@@ -30,7 +30,6 @@ private enum PulseEaseOption: String, CaseIterable, Identifiable {
 private enum PulseTargetOption: String, CaseIterable, Identifiable {
 	case brightness
 	case temperature
-	case both
 
 	var id: String { rawValue }
 
@@ -38,7 +37,6 @@ private enum PulseTargetOption: String, CaseIterable, Identifiable {
 		switch self {
 		case .brightness: return "Brightness"
 		case .temperature: return "Temperature"
-		case .both: return "Both"
 		}
 	}
 
@@ -46,7 +44,6 @@ private enum PulseTargetOption: String, CaseIterable, Identifiable {
 		switch self {
 		case .brightness: return .brightness
 		case .temperature: return .temperature
-		case .both: return .both
 		}
 	}
 }
@@ -58,8 +55,8 @@ struct PulseSheet: View {
 
 	@State private var count = 3
 	@State private var durationMs = 600
-	@State private var ease = PulseEaseOption.easeInOut
-	@State private var target = PulseTargetOption.both
+	@State private var ease = PulseEaseOption.linear
+	@State private var target = PulseTargetOption.brightness
 	@State private var value = 100.0
 	@State private var isPulsing = false
 	@State private var stopRequested = false

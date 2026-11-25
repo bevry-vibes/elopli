@@ -118,6 +118,9 @@ fn start_server() -> (u16, Arc<Mutex<FakeState>>) {
 						}
 						if let Some(brightness) = light.get("brightness").and_then(Value::as_u64) {
 							state.brightness = brightness as u8;
+							if state.brightness == 0 {
+								state.on = 0;
+							}
 						}
 						if let Some(temperature) = light.get("temperature").and_then(Value::as_u64)
 						{
@@ -351,7 +354,7 @@ fn pulse_stops_and_preserves_an_external_change() {
 }
 
 #[test]
-fn pulse_runs_peak_to_zero_once_per_count() {
+fn pulse_runs_peak_to_minimum_once_per_count() {
 	let (port, state) = start_server();
 	let client = client(port);
 	let original = client.state().unwrap();
@@ -369,14 +372,11 @@ fn pulse_runs_peak_to_zero_once_per_count() {
 	assert_eq!(result.state(), &original);
 
 	let updates = state.lock().unwrap().updates.clone();
-	let zeros = updates
+	let minima = updates
 		.iter()
-		.filter(|update| {
-			let light = &update["lights"][0];
-			light["on"].as_u64() == Some(0) && light["brightness"].as_u64() == Some(0)
-		})
+		.filter(|update| update["lights"][0]["brightness"].as_u64() == Some(2))
 		.count();
-	assert_eq!(zeros, 3);
+	assert_eq!(minima, 3);
 	assert_eq!(client.state().unwrap(), original);
 }
 
