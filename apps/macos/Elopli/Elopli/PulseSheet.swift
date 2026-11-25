@@ -73,13 +73,10 @@ struct PulseSheet: View {
 			HStack {
 				Text("Count")
 				Spacer()
-				Stepper(
-					"",
-					value: $count,
-					in: 1...20
-				)
-				.labelsHidden()
-				.frame(width: 110, alignment: .trailing)
+				Stepper(value: $count, in: 1...20) {
+					Text("\(count)")
+						.monospacedDigit()
+				}
 			}
 			.disabled(isPulsing)
 
