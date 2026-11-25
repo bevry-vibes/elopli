@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value, json};
 
@@ -8,12 +8,25 @@ use crate::model::{
 	AccessoryInfo, LightState, PowerOnBehavior, PowerOnSettings, Snapshot, Update,
 	parse_accessory_info, parse_error_messages, parse_power_on_settings, parse_state,
 };
-use crate::pulse::{PulseCancellation, PulseConfig, PulseEase, PulseOutcome};
+use crate::pulse::{PulseCancellation, PulseConfig, PulseOutcome};
 use crate::sweep::SweepConfig;
 use crate::transport::{HttpTransport, TransportMode, build_transport};
 use crate::validate::{
 	validate_brightness, validate_display_name, validate_temperature, warmth_to_mired,
 };
+
+/// How often a running animation checks the light for an external change.
+/// The pulse checks every frame so an outside change is never overwritten;
+/// the sweep polls at this interval to keep its frame rate high.
+const EXTERNAL_CHECK_INTERVAL: Duration = Duration::from_millis(250);
+/// Animations send their own immediate keyframes at this interval. The light's
+/// stored colorChangeDurationMs smooths each small step.
+const ANIMATION_FRAME_MS: u32 = 100;
+
+/// Animations send a few keyframes and rely on the light's own fade. That
+/// only works over one reused connection; a new connection per keyframe
+/// eventually stops the light's HTTP server.
+const ANIMATION_TRANSPORT_ERROR: &str = "pulse and sweep need a persistent HTTP connection; the light drops repeated short-lived connections. Grant Elopli local network access and use the native transport.";
 
 pub struct ElopliClient {
 	host: String,
@@ -230,6 +243,7 @@ impl ElopliClient {
 		let _guard = self.control.lock()?;
 		let token = self.control.token()?;
 		let original = self.state()?;
+		self.require_persistent_transport()?;
 		let result = self.run_pulse(config, original, &token);
 		if result.is_err() {
 			let _ = self.restore_state(original);
@@ -244,6 +258,7 @@ impl ElopliClient {
 		let _guard = self.control.lock()?;
 		let token = self.control.token()?;
 		let original = self.state()?;
+		self.require_persistent_transport()?;
 		let result = self.run_sweep(config, original, &token);
 		if result.is_err() {
 			let _ = self.restore_state(original);
@@ -267,6 +282,8 @@ impl ElopliClient {
 		let warm = warmth_to_mired(100.0)?;
 		let segments = config.count.saturating_mul(2).saturating_add(1);
 		let mut expected = original;
+		let mut last_external_check = Instant::now();
+		let durations = config.segment_durations(original.temperature)?;
 		if let Some(brightness) = config.brightness {
 			expected = self.write_pulse_update(Update {
 				on: Some(true),
@@ -288,11 +305,13 @@ impl ElopliClient {
 			original.brightness,
 			warm,
 			Some(true),
-			segment_ms(config.duration_ms, segments, 0),
-			config.ease,
+			durations[0],
+			0,
+			false,
 			false,
 			true,
 			&mut expected,
+			Some(&mut last_external_check),
 		)? {
 			return Ok(outcome);
 		}
@@ -305,11 +324,13 @@ impl ElopliClient {
 				original.brightness,
 				cool,
 				Some(true),
-				segment_ms(config.duration_ms, segments, 1 + cycle * 2),
-				config.ease,
+				durations[(1 + cycle * 2) as usize],
+				0,
+				false,
 				false,
 				true,
 				&mut expected,
+				Some(&mut last_external_check),
 			)? {
 				return Ok(outcome);
 			}
@@ -320,11 +341,13 @@ impl ElopliClient {
 					original.brightness,
 					warm,
 					Some(true),
-					segment_ms(config.duration_ms, segments, 2 + cycle * 2),
-					config.ease,
+					durations[(2 + cycle * 2) as usize],
+					0,
+					false,
 					false,
 					true,
 					&mut expected,
+					Some(&mut last_external_check),
 				)? {
 					return Ok(outcome);
 				}
@@ -338,11 +361,13 @@ impl ElopliClient {
 			original.brightness,
 			original.temperature,
 			Some(true),
-			segment_ms(config.duration_ms, segments, segments - 1),
-			config.ease,
+			durations[(segments - 1) as usize],
+			0,
 			false,
+			config.brightness.is_some(),
 			true,
 			&mut expected,
+			Some(&mut last_external_check),
 		)? {
 			return Ok(outcome);
 		}
@@ -350,7 +375,12 @@ impl ElopliClient {
 		if let Some(outcome) = self.cancelled(token, &expected)? {
 			return Ok(outcome);
 		}
-		self.restore_state(original)?;
+		// The final ramp already targeted the original values. Restoring
+		// immediately would snap the last part of that fade. Only restore the
+		// power state when the light was originally off.
+		if !original.on {
+			self.restore_state(original)?;
+		}
 		Ok(PulseOutcome::Completed(original))
 	}
 
@@ -359,96 +389,80 @@ impl ElopliClient {
 		self.control.lock()
 	}
 
+	fn require_persistent_transport(&self) -> Result<()> {
+		if self.transport.persistent() {
+			Ok(())
+		} else {
+			Err(ElopliError::Unsupported(ANIMATION_TRANSPORT_ERROR.into()))
+		}
+	}
+
 	fn run_pulse(
 		&self,
 		config: PulseConfig,
 		original: LightState,
 		token: &str,
 	) -> Result<PulseOutcome> {
-		let peak_brightness = config.value.clamp(2, 100);
-		// The light treats anything below 2% as off, so the pulse keeps the
-		// light on at 2%.
-		let low_brightness = 2;
-		let segments = config.count.saturating_mul(2).saturating_add(1);
-
+		let mut plan = config.plan(original.on, original.brightness);
+		let check_every_frame = config.duration_ms <= 2_000;
 		let mut expected = original;
+		let mut from = LightState {
+			brightness: if original.on { original.brightness } else { 0 },
+			..original
+		};
+		let mut last_external_check = Instant::now();
 
-		// Current state to the first peak.
-		if let Some(outcome) = self.ramp_to(
-			token,
-			expected,
-			peak_brightness,
-			original.temperature,
-			Some(true),
-			segment_ms(config.duration_ms, segments, 0),
-			config.ease,
-			true,
-			false,
-			&mut expected,
-		)? {
-			return Ok(outcome);
-		}
-
-		for cycle in 0..config.count {
-			// Every pulse is a peak-to-minimum transition. The light stays
-			// on at its 2% minimum.
-			if let Some(outcome) = self.ramp_to(
-				token,
-				expected,
-				low_brightness,
-				original.temperature,
-				None,
-				segment_ms(config.duration_ms, segments, 1 + cycle * 2),
-				config.ease,
-				true,
-				false,
-				&mut expected,
-			)? {
-				return Ok(outcome);
-			}
-
-			if cycle + 1 < config.count {
-				if let Some(outcome) = self.ramp_to(
-					token,
-					expected,
-					peak_brightness,
-					original.temperature,
-					Some(true),
-					segment_ms(config.duration_ms, segments, 2 + cycle * 2),
-					config.ease,
-					true,
-					false,
-					&mut expected,
-				)? {
-					return Ok(outcome);
-				}
+		if !original.on {
+			// Turn on at the 2% floor first, then rise. This avoids jumping on
+			// at the stored brightness.
+			let turn_on_ms = plan
+				.first()
+				.map(|segment| segment.duration_ms.min(120))
+				.unwrap_or(0);
+			if turn_on_ms > 0 {
+				let state = self.write_pulse_update(Update {
+					on: Some(true),
+					brightness: Some(2),
+					..Update::default()
+				})?;
+				std::thread::sleep(Duration::from_millis(u64::from(turn_on_ms)));
+				expected = state;
+				from = LightState {
+					brightness: 2,
+					..state
+				};
+				plan[0].duration_ms = plan[0].duration_ms.saturating_sub(turn_on_ms).max(1);
 			}
 		}
 
-		// Return to the value the light had before the pulse. If an action
-		// interrupted the pulse, that action has already applied its value
-		// and the pulse stopped without restoring.
-		if original.on {
+		for segment in plan {
 			if let Some(outcome) = self.ramp_to(
 				token,
-				expected,
-				original.brightness,
+				from,
+				segment.target.brightness,
 				original.temperature,
-				Some(true),
-				segment_ms(config.duration_ms, segments, segments - 1),
-				config.ease,
+				segment.target.on,
+				segment.duration_ms,
+				segment.hold_ms,
+				check_every_frame,
 				true,
 				false,
 				&mut expected,
+				Some(&mut last_external_check),
 			)? {
 				return Ok(outcome);
 			}
+			from = expected;
 		}
 
 		if let Some(outcome) = self.cancelled(token, &expected)? {
 			return Ok(outcome);
 		}
-		self.restore_state(original)?;
+		// An on light already ended at its original value. An off light ended
+		// at 0%, so confirm the power state is off.
+		if !original.on {
+			self.restore_state(original)?;
+		}
 		Ok(PulseOutcome::Completed(original))
 	}
 
@@ -461,27 +475,61 @@ impl ElopliClient {
 		to_temperature: u16,
 		on: Option<bool>,
 		ramp_ms: u32,
-		ease: PulseEase,
+		hold_ms: u32,
+		check_every_frame: bool,
 		includes_brightness: bool,
 		includes_temperature: bool,
 		expected: &mut LightState,
+		mut last_external_check: Option<&mut Instant>,
 	) -> Result<Option<PulseOutcome>> {
-		let frame_ms = self.transport.pulse_frame_ms().max(120);
-		// Hold the endpoint briefly so peaks and minima are visible even when
-		// the whole animation is short.
-		let hold_ms = (ramp_ms / 5).max(1).min(ramp_ms / 2).max(1);
+		// Send immediate keyframes at a fixed interval. The light applies each
+		// step at once and its stored colorChangeDurationMs smooths the change.
+		// Use one frame per percent of brightness, or per mired of temperature,
+		// when the duration allows it. Otherwise cap the rate at 10 Hz.
+		let hold_ms = hold_ms.min(ramp_ms.saturating_sub(1));
 		let motion_ms = ramp_ms.saturating_sub(hold_ms).max(1);
-		let steps = (motion_ms / frame_ms).max(1);
-		let step_ms = (motion_ms / steps).max(10);
+		let distance = match (includes_brightness, includes_temperature) {
+			(true, true) => u32::from(to_brightness.abs_diff(from.brightness))
+				.max(u32::from(to_temperature.abs_diff(from.temperature))),
+			(true, false) => u32::from(to_brightness.abs_diff(from.brightness)),
+			(false, true) => u32::from(to_temperature.abs_diff(from.temperature)),
+			(false, false) => 1,
+		};
+		let rate_steps = (motion_ms / ANIMATION_FRAME_MS).max(1);
+		let steps = distance.max(1).min(rate_steps).max(1);
+		let step_ms = motion_ms.div_ceil(steps).max(1);
+		let started = Instant::now();
 
 		for step in 1..=steps {
-			if let Some(outcome) = self.cancelled(token, expected)? {
-				return Ok(Some(outcome));
+			self.require_persistent_transport()?;
+			if self.control.token()? != token {
+				return Ok(Some(PulseOutcome::Cancelled {
+					state: self.state()?,
+					reason: PulseCancellation::Superseded,
+				}));
 			}
-			let progress = ease.apply(f64::from(step) / f64::from(steps));
+			let external_change = if check_every_frame {
+				let current = self.state()?;
+				(current != *expected).then_some(current)
+			} else {
+				match last_external_check.as_deref_mut() {
+					Some(last_check) if last_check.elapsed() >= EXTERNAL_CHECK_INTERVAL => {
+						let current = self.state()?;
+						*last_check = Instant::now();
+						(current != *expected).then_some(current)
+					}
+					_ => None,
+				}
+			};
+			if let Some(state) = external_change {
+				return Ok(Some(PulseOutcome::Cancelled {
+					state,
+					reason: PulseCancellation::ExternalChange,
+				}));
+			}
+			let progress = f64::from(step) / f64::from(steps);
 			let mut update = Update {
 				on,
-				duration_ms: Some(step_ms),
 				..Update::default()
 			};
 			if includes_brightness {
@@ -491,9 +539,17 @@ impl ElopliClient {
 				update.temperature = Some(lerp_u16(from.temperature, to_temperature, progress));
 			}
 			*expected = self.write_pulse_update(update)?;
-			std::thread::sleep(std::time::Duration::from_millis(u64::from(step_ms)));
+			let deadline = started + Duration::from_millis(u64::from(step_ms) * u64::from(step));
+			if let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+				std::thread::sleep(remaining);
+			}
 		}
-		std::thread::sleep(std::time::Duration::from_millis(u64::from(hold_ms)));
+		// Let the final step reach the endpoint, then hold it for the rest of
+		// the segment. This is what makes the 2% minimum visible.
+		let deadline = started + Duration::from_millis(u64::from(ramp_ms));
+		if let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+			std::thread::sleep(remaining);
+		}
 		Ok(None)
 	}
 
@@ -534,15 +590,4 @@ fn lerp_u8(from: u8, to: u8, progress: f64) -> u8 {
 
 fn lerp_u16(from: u16, to: u16, progress: f64) -> u16 {
 	(f64::from(from) + (f64::from(to) - f64::from(from)) * progress).round() as u16
-}
-
-/// Split the total pulse duration across every segment. Using the boundaries
-/// avoids losing milliseconds to integer division and keeps the whole
-/// animation at the requested duration.
-fn segment_ms(total_ms: u32, segments: u32, index: u32) -> u32 {
-	let segments = u64::from(segments.max(1));
-	let total = u64::from(total_ms);
-	let start = total * u64::from(index) / segments;
-	let end = total * u64::from(index + 1) / segments;
-	(end.saturating_sub(start)).max(1) as u32
 }

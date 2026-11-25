@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use elopli_core::{
 	AccessoryInfo, Config, Device, DiscoveredDevice, ElopliClient, ElopliError, LightState,
-	PowerOnBehavior, PowerOnSettings, PulseConfig, PulseEase, PulseOutcome, Snapshot, SweepConfig,
+	PowerOnBehavior, PowerOnSettings, PulseConfig, PulseOutcome, Snapshot, SweepConfig,
 	TransportMode, Update, WifiInfo, config_path, discover as discover_core, kelvin_to_mired,
 	validate_warmth,
 };
@@ -185,25 +185,6 @@ impl From<DiscoveredDevice> for FfiDiscoveredDevice {
 	}
 }
 
-#[derive(Debug, Clone, Copy, uniffi::Enum)]
-pub enum FfiPulseEase {
-	Linear,
-	EaseIn,
-	EaseOut,
-	EaseInOut,
-}
-
-impl From<FfiPulseEase> for PulseEase {
-	fn from(value: FfiPulseEase) -> Self {
-		match value {
-			FfiPulseEase::Linear => Self::Linear,
-			FfiPulseEase::EaseIn => Self::EaseIn,
-			FfiPulseEase::EaseOut => Self::EaseOut,
-			FfiPulseEase::EaseInOut => Self::EaseInOut,
-		}
-	}
-}
-
 #[derive(uniffi::Object)]
 pub struct FfiClient {
 	inner: ElopliClient,
@@ -340,14 +321,14 @@ impl FfiClient {
 		&self,
 		count: u32,
 		duration_ms: u32,
-		ease: FfiPulseEase,
 		value: u8,
+		low: u8,
 	) -> Result<FfiPulseOutcome, FfiError> {
 		let outcome = self.inner.pulse(PulseConfig {
 			count,
 			duration_ms,
-			ease: ease.into(),
 			value,
+			low,
 		})?;
 		Ok(outcome.into())
 	}
@@ -356,13 +337,11 @@ impl FfiClient {
 		&self,
 		count: u32,
 		duration_ms: u32,
-		ease: FfiPulseEase,
 		brightness: Option<u8>,
 	) -> Result<FfiPulseOutcome, FfiError> {
 		let outcome = self.inner.sweep(SweepConfig {
 			count,
 			duration_ms,
-			ease: ease.into(),
 			brightness,
 		})?;
 		Ok(outcome.into())

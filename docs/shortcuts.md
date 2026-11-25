@@ -47,8 +47,8 @@ The Elopli actions appear in the action list.
 
 A new action stops a running pulse and applies its own change.
 A pulse also stops when the light changes outside Elopli, and that external change is preserved.
-Pulse frames are paced conservatively to avoid overloading the light's HTTP server.
-A native client leaves at least 120 ms between frames; the `curl` fallback leaves at least 250 ms.
+Pulse changes use one persistent connection and immediate keyframes at about 10 Hz.
+The `curl` transport is refused for animations because it opens a new connection for every request.
 
 The **Lights** parameter is a multi-select picker.
 Select one or more lights, or **All Lights**.
@@ -57,18 +57,20 @@ The **Rename Light** action uses a single-light picker.
 Pulse parameters:
 
 - **Count** — number of peak-to-minimum pulses, 1 to 20.
-- **Duration** — duration of the entire pulse animation in milliseconds (default 3000).
-- **Ease** — linear (default), ease in, ease out, or ease in out.
+- **Duration** — full duration of the pulse animation in milliseconds (default 3000). It is split by distance across the initial rise, each fade, and the final restore. The app sends its own keyframes so the duration stays exact.
 - **Peak Value** — peak brightness percentage.
+- **Low Value** — low brightness percentage (default 0). Set it to 2% or higher to keep the light on during each pulse.
 
-The minimum is 2%; the light stays on at that level.
+The low defaults to 0% (off).
+The next rise turns the light on again.
+The low hold is part of the low segment's budget, up to 100 ms.
+An off light starts and ends off: count 1 runs off → peak → off, and count 2 adds the low between the peaks.
 
 Sweep parameters:
 
 - **Count** — number of warm-to-cool sweeps, 1 to 20.
-- **Duration** — duration of the entire sweep animation in milliseconds.
-- **Ease** — linear (default), ease in, ease out, or ease in out.
-- **Brightness** — brightness to hold during the sweep. 0 keeps the current brightness; any other value is held for the whole sweep.
+- **Duration** — full duration of the sweep animation in milliseconds. The first and final moves are weighted by distance.
+- **Brightness** — brightness to hold during the sweep. N/A (0) keeps the current brightness; any other value is held for the whole sweep.
 
 ## Local network permission
 

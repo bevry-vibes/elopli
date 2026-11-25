@@ -15,6 +15,9 @@ pub enum ElopliError {
 	Config(String),
 	#[error("discovery error: {0}")]
 	Discovery(String),
+	/// The requested operation is not supported by the selected transport.
+	#[error("{0}")]
+	Unsupported(String),
 	#[error("I/O error: {0}")]
 	Io(#[from] std::io::Error),
 }

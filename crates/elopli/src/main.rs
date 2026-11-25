@@ -4,8 +4,8 @@ use std::time::{Duration, Instant};
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use elopli_core::{
-	Config, Device, ElopliClient, ElopliError, LightState, PowerOnBehavior, PulseConfig, PulseEase,
-	Result, SweepConfig, TransportMode, Update, config_path, discover, kelvin_to_mired,
+	Config, Device, ElopliClient, ElopliError, LightState, PowerOnBehavior, PulseConfig, Result,
+	SweepConfig, TransportMode, Update, config_path, discover, kelvin_to_mired,
 	validate_brightness, validate_display_name, validate_temperature, validate_warmth,
 };
 use rayon::prelude::*;
@@ -16,25 +16,6 @@ enum TransportArg {
 	Auto,
 	Native,
 	Curl,
-}
-
-#[derive(Debug, Clone, Copy, ValueEnum)]
-enum PulseEaseArg {
-	Linear,
-	EaseIn,
-	EaseOut,
-	EaseInOut,
-}
-
-impl From<PulseEaseArg> for PulseEase {
-	fn from(value: PulseEaseArg) -> Self {
-		match value {
-			PulseEaseArg::Linear => Self::Linear,
-			PulseEaseArg::EaseIn => Self::EaseIn,
-			PulseEaseArg::EaseOut => Self::EaseOut,
-			PulseEaseArg::EaseInOut => Self::EaseInOut,
-		}
-	}
 }
 
 impl From<TransportArg> for TransportMode {
@@ -270,16 +251,9 @@ struct PulseArgs {
 		default_value_t = 3000,
 		value_parser = clap::value_parser!(u32).range(50..=10000),
 		value_name = "MS",
-		help = "duration of the entire pulse animation in milliseconds (default 3000)"
+		help = "target duration of the pulse animation in milliseconds (default 3000)"
 	)]
 	duration: u32,
-	#[arg(
-		long,
-		value_enum,
-		default_value_t = PulseEaseArg::Linear,
-		help = "easing curve (default linear)"
-	)]
-	ease: PulseEaseArg,
 	#[arg(
 		long,
 		default_value_t = 100,
@@ -288,6 +262,14 @@ struct PulseArgs {
 		help = "peak value in percent (default 100)"
 	)]
 	value: u8,
+	#[arg(
+		long,
+		default_value_t = 0,
+		value_parser = clap::value_parser!(u8).range(0..=100),
+		value_name = "PERCENT",
+		help = "low value in percent; 0 or 1 turns the light off during the pulse (default 0)"
+	)]
+	low: u8,
 }
 
 #[derive(Debug, Args)]
@@ -309,13 +291,6 @@ struct SweepArgs {
 		help = "duration of the entire sweep animation in milliseconds (default 3000)"
 	)]
 	duration: u32,
-	#[arg(
-		long,
-		value_enum,
-		default_value_t = PulseEaseArg::Linear,
-		help = "easing curve (default linear)"
-	)]
-	ease: PulseEaseArg,
 	#[arg(
 		long,
 		default_value_t = 0,
@@ -395,7 +370,11 @@ fn merge(record: &mut Map<String, Value>, value: Value) {
 
 fn error_record(device: &Device, error: &ElopliError) -> Value {
 	let (reachable, state) = match error {
-		ElopliError::Api { .. } => (true, "error"),
+		ElopliError::Api { .. }
+		| ElopliError::Unsupported(_)
+		| ElopliError::Config(_)
+		| ElopliError::InvalidValue(_)
+		| ElopliError::InvalidResponse(_) => (true, "error"),
 		_ => (false, "offline"),
 	};
 	let mut record = base(device);
@@ -534,8 +513,8 @@ fn pulse_record(device: &Device, settings: &Settings, config: PulseConfig) -> Va
 			}
 			record.insert("pulse_count".into(), json!(config.count));
 			record.insert("pulse_duration_ms".into(), json!(config.duration_ms));
-			record.insert("pulse_ease".into(), json!(config.ease.label()));
 			record.insert("pulse_value".into(), json!(config.value));
+			record.insert("pulse_low".into(), json!(config.low));
 			Value::Object(record)
 		}
 		Err(error) => error_record(device, &error),
@@ -557,7 +536,6 @@ fn sweep_record(device: &Device, settings: &Settings, config: SweepConfig) -> Va
 			}
 			record.insert("sweep_count".into(), json!(config.count));
 			record.insert("sweep_duration_ms".into(), json!(config.duration_ms));
-			record.insert("sweep_ease".into(), json!(config.ease.label()));
 			record.insert("sweep_brightness".into(), json!(config.brightness));
 			Value::Object(record)
 		}
@@ -929,24 +907,31 @@ fn print_pulses(records: &[Value]) {
 			.get("pulse_cancelled")
 			.and_then(Value::as_str)
 			.unwrap_or("");
+		let duration = record
+			.get("pulse_duration_ms")
+			.and_then(Value::as_u64)
+			.unwrap_or(0);
+		let requested = record
+			.get("pulse_requested_duration_ms")
+			.and_then(Value::as_u64)
+			.unwrap_or(duration);
+		let duration_label = if requested == duration {
+			format!("{duration} ms")
+		} else {
+			format!("{duration} ms (requested {requested} ms)")
+		};
 		println!(
-			"{name}: {verb} {}× over {} ms ({} easing, peak {}%){}; final {}, brightness {}%, warmth {}%",
+			"{name}: {verb} {}× over {} (peak {}%, low {}%){}; final {}, brightness {}%, warmth {}%",
 			record
 				.get("pulse_count")
 				.and_then(Value::as_u64)
 				.unwrap_or(0),
-			record
-				.get("pulse_duration_ms")
-				.and_then(Value::as_u64)
-				.unwrap_or(0),
-			record
-				.get("pulse_ease")
-				.and_then(Value::as_str)
-				.unwrap_or("?"),
+			duration_label,
 			record
 				.get("pulse_value")
 				.and_then(Value::as_u64)
 				.unwrap_or(0),
+			record.get("pulse_low").and_then(Value::as_u64).unwrap_or(0),
 			if reason.is_empty() {
 				String::new()
 			} else {
@@ -993,7 +978,7 @@ fn print_sweeps(records: &[Value]) {
 			_ => "brightness unchanged".into(),
 		};
 		println!(
-			"{name}: {verb} {}× over {} ms ({} easing, {}){}; final {}, brightness {}%, warmth {}%",
+			"{name}: {verb} {}× over {} ms ({}){}; final {}, brightness {}%, warmth {}%",
 			record
 				.get("sweep_count")
 				.and_then(Value::as_u64)
@@ -1002,10 +987,6 @@ fn print_sweeps(records: &[Value]) {
 				.get("sweep_duration_ms")
 				.and_then(Value::as_u64)
 				.unwrap_or(0),
-			record
-				.get("sweep_ease")
-				.and_then(Value::as_str)
-				.unwrap_or("?"),
 			brightness,
 			if reason.is_empty() {
 				String::new()
@@ -1413,8 +1394,8 @@ fn run(cli: Cli) -> Result<u8> {
 			let prompt_config = PulseConfig {
 				count: args.count,
 				duration_ms: args.duration,
-				ease: args.ease.into(),
 				value: args.value,
+				low: args.low,
 			};
 			let devices = resolve_devices(&args.targets, &config, false)?;
 			let records = parallel(&devices, |device| {
@@ -1431,7 +1412,6 @@ fn run(cli: Cli) -> Result<u8> {
 			let sweep_config = SweepConfig {
 				count: args.count,
 				duration_ms: args.duration,
-				ease: args.ease.into(),
 				brightness: (args.brightness > 0).then_some(args.brightness),
 			};
 			let devices = resolve_devices(&args.targets, &config, false)?;

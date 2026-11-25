@@ -2,9 +2,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use elopli_core::{
-	ElopliClient, PowerOnBehavior, PulseCancellation, PulseConfig, PulseEase, SweepConfig,
-	TransportMode, Update, validate_brightness, validate_display_name, validate_temperature,
-	validate_warmth,
+	ElopliClient, PowerOnBehavior, PulseCancellation, PulseConfig, SweepConfig, TransportMode,
+	Update, validate_brightness, validate_display_name, validate_temperature, validate_warmth,
 };
 use serde_json::{Value, json};
 use tiny_http::{Header, Method, Response, Server};
@@ -267,8 +266,8 @@ fn pulse_restores_the_original_state() {
 		.pulse(PulseConfig {
 			count: 1,
 			duration_ms: 100,
-			ease: PulseEase::Linear,
 			value: 80,
+			low: 2,
 		})
 		.unwrap();
 	assert!(result.completed());
@@ -292,8 +291,8 @@ fn actions_cancel_a_running_pulse_and_win() {
 			.pulse(PulseConfig {
 				count: 20,
 				duration_ms: 1_000,
-				ease: PulseEase::Linear,
 				value: 100,
+				low: 2,
 			})
 			.unwrap()
 	});
@@ -322,8 +321,8 @@ fn pulse_stops_and_preserves_an_external_change() {
 			.pulse(PulseConfig {
 				count: 5,
 				duration_ms: 1_000,
-				ease: PulseEase::Linear,
 				value: 100,
+				low: 2,
 			})
 			.unwrap()
 	});
@@ -360,8 +359,8 @@ fn pulse_runs_peak_to_minimum_once_per_count() {
 		.pulse(PulseConfig {
 			count: 3,
 			duration_ms: 100,
-			ease: PulseEase::Linear,
 			value: 80,
+			low: 2,
 		})
 		.unwrap();
 	assert!(result.completed());
@@ -386,7 +385,6 @@ fn sweep_covers_cool_and_warm_and_restores() {
 		.sweep(SweepConfig {
 			count: 1,
 			duration_ms: 100,
-			ease: PulseEase::Linear,
 			brightness: None,
 		})
 		.unwrap();
@@ -417,7 +415,6 @@ fn sweep_holds_brightness_and_restores_it() {
 		.sweep(SweepConfig {
 			count: 1,
 			duration_ms: 100,
-			ease: PulseEase::Linear,
 			brightness: Some(30),
 		})
 		.unwrap();
@@ -427,6 +424,88 @@ fn sweep_holds_brightness_and_restores_it() {
 		updates
 			.iter()
 			.any(|update| update["lights"][0]["brightness"].as_u64() == Some(30))
+	);
+	assert_eq!(client.state().unwrap(), original);
+}
+
+#[test]
+fn long_sweep_sends_immediate_frames() {
+	let (port, state) = start_server();
+	let client = client(port);
+	let original = client.state().unwrap();
+
+	client
+		.sweep(SweepConfig {
+			count: 1,
+			duration_ms: 6_000,
+			brightness: None,
+		})
+		.unwrap();
+
+	let updates = state.lock().unwrap().updates.clone();
+	let durations: Vec<u64> = updates
+		.iter()
+		.filter_map(|update| update["lights"][0]["durationMs"].as_u64())
+		.collect();
+	assert!(durations.is_empty());
+	assert!(updates.len() >= 6);
+	assert_eq!(client.state().unwrap(), original);
+}
+
+#[test]
+fn pulse_can_turn_the_light_off_at_the_low() {
+	let (port, state) = start_server();
+	let client = client(port);
+	let original = client.state().unwrap();
+
+	let result = client
+		.pulse(PulseConfig {
+			count: 1,
+			duration_ms: 100,
+			value: 100,
+			low: 0,
+		})
+		.unwrap();
+	assert!(result.completed());
+	assert_eq!(result.state(), &original);
+
+	let updates = state.lock().unwrap().updates.clone();
+	assert!(
+		updates
+			.iter()
+			.any(|update| update["lights"][0]["brightness"].as_u64() == Some(0))
+	);
+	assert_eq!(client.state().unwrap(), original);
+}
+
+#[test]
+fn off_light_pulse_starts_and_ends_off() {
+	let (port, state) = start_server();
+	let client = client(port);
+	client.set_on(false).unwrap();
+	let original = client.state().unwrap();
+	assert!(!original.on);
+
+	let result = client
+		.pulse(PulseConfig {
+			count: 1,
+			duration_ms: 500,
+			value: 100,
+			low: 0,
+		})
+		.unwrap();
+	assert!(result.completed());
+	assert_eq!(result.state(), &original);
+
+	let updates = state.lock().unwrap().updates.clone();
+	let first_brightness = updates
+		.iter()
+		.filter_map(|update| update["lights"][0]["brightness"].as_u64())
+		.next()
+		.unwrap();
+	assert!(
+		first_brightness <= 2,
+		"off pulse turned on at {first_brightness}%"
 	);
 	assert_eq!(client.state().unwrap(), original);
 }

@@ -33,9 +33,13 @@ Serial numbers and MAC addresses are discarded by the client.
 - Link lights or individual controls with Command-click.
 - Pulse brightness from the current value to a peak, then through peak-to-minimum cycles, then back to the original values.
   A count of 3 means three peak-to-minimum fades.
-  The minimum is 2% and the light stays on.
+  The low defaults to 0% (off).
+  Set the low to 2% or higher to keep the light on during each pulse.
+  An off light starts and ends off: count 1 runs off → peak → off.
+  The duration is split by distance across the initial rise, each fade, and the final restore.
+  The app sends its own immediate keyframes so the duration stays exact.
   A new action stops a running pulse, and a pulse stops itself when the light changes elsewhere.
-  Pulse frames are paced to the transport so the light's small HTTP server is not flooded.
+  The client uses one persistent connection and splits every fade below the firmware's 1000 ms limit.
 - Sweep temperature from warmest to coolest and back to warmest for each count, then restore the original values.
   A sweep can hold a fixed brightness for the whole animation.
 - Pulse and sweep editors in each light's menu.
@@ -191,9 +195,9 @@ elopli rename Right "Desk Right"
 elopli power-on
 elopli power-on --defaults --brightness 20 --warmth 35 --all
 elopli power-on --last --all
-elopli pulse --count 3 --duration 3000 --ease linear --value 100
-elopli pulse Left --count 1 --duration 300 --ease linear --value 80
-elopli sweep --count 1 --duration 3000 --ease linear
+elopli pulse --count 3 --duration 3000 --value 100
+elopli pulse Left --count 1 --duration 300 --value 80
+elopli sweep --count 1 --duration 3000
 elopli sweep Left --count 2 --duration 4000 --brightness 40
 elopli info
 elopli discover

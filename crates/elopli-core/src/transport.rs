@@ -1,7 +1,7 @@
 use std::io::{Read, Write};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransportMode {
@@ -59,12 +59,11 @@ pub trait HttpTransport: Send + Sync {
 		timeout: Duration,
 	) -> Result<HttpResponse, TransportError>;
 
-	/// The shortest gap between pulse frames. A transport that reuses one
-	/// connection can animate more finely than one that opens a new
-	/// connection per request; the light's HTTP server is fragile under
-	/// bursts of short-lived connections.
-	fn pulse_frame_ms(&self) -> u32 {
-		250
+	/// Whether the transport reuses one connection for every request.
+	/// Animations must not open a new connection per keyframe: the light's
+	/// HTTP server drops repeated short-lived connections.
+	fn persistent(&self) -> bool {
+		false
 	}
 }
 
@@ -87,10 +86,8 @@ impl Default for NativeTransport {
 }
 
 impl HttpTransport for NativeTransport {
-	fn pulse_frame_ms(&self) -> u32 {
-		// The light's colorChangeDurationMs defaults to 100 ms. Sending a
-		// new target sooner interrupts the fade before it settles.
-		120
+	fn persistent(&self) -> bool {
+		true
 	}
 
 	fn request(
@@ -143,10 +140,6 @@ impl CurlTransport {
 }
 
 impl HttpTransport for CurlTransport {
-	fn pulse_frame_ms(&self) -> u32 {
-		250
-	}
-
 	fn request(
 		&self,
 		method: &str,
@@ -218,7 +211,7 @@ impl HttpTransport for CurlTransport {
 pub struct AutoTransport {
 	native: NativeTransport,
 	curl: Option<CurlTransport>,
-	use_curl: AtomicBool,
+	fallback_until: Mutex<Option<Instant>>,
 }
 
 impl AutoTransport {
@@ -226,7 +219,20 @@ impl AutoTransport {
 		Self {
 			native: NativeTransport::new(),
 			curl: CurlTransport::available().then_some(CurlTransport),
-			use_curl: AtomicBool::new(false),
+			fallback_until: Mutex::new(None),
+		}
+	}
+
+	fn fallback_active(&self) -> bool {
+		self.fallback_until
+			.lock()
+			.map(|until| until.is_some_and(|until| Instant::now() < until))
+			.unwrap_or(false)
+	}
+
+	fn begin_fallback(&self) {
+		if let Ok(mut until) = self.fallback_until.lock() {
+			*until = Some(Instant::now() + Duration::from_secs(2));
 		}
 	}
 }
@@ -238,12 +244,8 @@ impl Default for AutoTransport {
 }
 
 impl HttpTransport for AutoTransport {
-	fn pulse_frame_ms(&self) -> u32 {
-		if self.use_curl.load(Ordering::Relaxed) {
-			250
-		} else {
-			self.native.pulse_frame_ms()
-		}
+	fn persistent(&self) -> bool {
+		!self.fallback_active()
 	}
 
 	fn request(
@@ -253,16 +255,16 @@ impl HttpTransport for AutoTransport {
 		body: Option<&[u8]>,
 		timeout: Duration,
 	) -> Result<HttpResponse, TransportError> {
-		if self.use_curl.load(Ordering::Relaxed)
-			&& let Some(curl) = &self.curl
-		{
-			return curl.request(method, url, body, timeout);
+		if self.fallback_active() {
+			if let Some(curl) = &self.curl {
+				return curl.request(method, url, body, timeout);
+			}
 		}
 		match self.native.request(method, url, body, timeout) {
 			Ok(response) => Ok(response),
 			Err(error) if error.is_connection() => match &self.curl {
 				Some(curl) => {
-					self.use_curl.store(true, Ordering::Relaxed);
+					self.begin_fallback();
 					curl.request(method, url, body, timeout)
 				}
 				None => Err(error),

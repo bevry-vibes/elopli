@@ -295,7 +295,9 @@ The response is HTTP 200 with an empty body.
 The light has no pulse endpoint.
 `POST /elgato/identify` flashes the light, but it is not configurable.
 The client ramps brightness from the current value to a peak, then down to the minimum and back to the peak for each count.
-`duration_ms` covers the entire animation, including the first rise and the final restore.
+`duration_ms` is the full animation time.
+It is split by distance across the initial rise, each fade, and the final restore.
+The client sends its own immediate keyframes at up to 10 Hz, or one per percent or mired when the duration allows, so the duration stays exact.
 A count of 3 is:
 
 ```text
@@ -303,7 +305,14 @@ current → peak → minimum → peak → minimum → peak → minimum → origi
 ```
 
 The last minimum returns to the original values instead of another peak.
-The minimum is 2% and the light stays on.
+The low defaults to 0% (off).
+The low hold is part of the low segment's budget, up to 100 ms.
+Set `low` to 2% or higher to keep the light on during the pulse.
+If the light is off, the pulse starts at 0% and ends off.
+A count of 1 runs off → peak → off.
+A count of 2 runs off → peak → low → peak → off.
+The stored brightness does not turn the light on at that level.
+The next rise turns the light on again, and the final restore returns the original power state.
 The pulse restores the exact original on, brightness, and temperature values when it finishes.
 If the light was off, the client turns it on for the pulse and turns it off again at the end.
 An interrupting action applies its own value and the pulse does not restore over it.
@@ -315,10 +324,16 @@ The light's HTTP server is fragile under bursts of short-lived connections, and 
 - [python-elgato](https://github.com/frenck/python-elgato) shares one `aiohttp` session for all requests.
 - [Harness Automation](https://docs.harnessautomation.com/gem/admin/drivers/elgato_key_light) notes that the HTTP server on stale firmware occasionally locks up and needs a power cycle.
 
-A native client that keeps one HTTP connection open sends a frame at most every 120 ms, leaving the light's 100 ms fade time to finish.
-The `curl` fallback opens a new connection per request, so it sends a frame at most every 250 ms.
-That keeps request pressure low enough for the light's connection table.
-Easing is visible when the duration is long enough for more than one frame.
+The firmware fades a change only when `durationMs` is below 1000 ms.
+At 1000 ms or more, the firmware applies the target instantly.
+The animation avoids this behavior by sending immediate keyframes and relying on the stored `colorChangeDurationMs` (100 ms) to smooth each step.
+It does not set `durationMs` for animation frames.
+The firmware rule was verified on the Back, Left, and Right lights on firmware 1.0.3 (222).
+
+The client keeps one persistent HTTP connection for the whole animation.
+It sends one immediate keyframe at a time at about 10 Hz.
+The `curl` transport opens a new connection for every request, so the client refuses to animate over `curl`.
+A new connection per step overloads the light's HTTP server.
 
 A cross-process lock stops two animations from overlapping.
 Every other action writes a cancellation token and waits for the lock before it writes.
@@ -330,6 +345,7 @@ A user action wins, and an external change is preserved without a restore.
 The sweep uses the temperature range from 0% (cool) to 100% (warm).
 It moves from the current temperature to the warm end, then runs the requested number of warm-to-cool sweeps, then returns from the cool end to the original temperature.
 `duration_ms` covers the entire animation.
+The first move to the warm end and the final return are weighted by their distance, so a small change gets less time.
 A count of 3 is:
 
 ```text

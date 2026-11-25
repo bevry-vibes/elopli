@@ -19,7 +19,7 @@ pub use model::{
 	AccessoryInfo, Device, DiscoveredDevice, LightState, PowerOnBehavior, PowerOnSettings,
 	Snapshot, Update, WifiInfo,
 };
-pub use pulse::{PulseCancellation, PulseConfig, PulseEase, PulseOutcome};
+pub use pulse::{PulseCancellation, PulseConfig, PulseOutcome};
 pub use sweep::SweepConfig;
 pub use transport::TransportMode;
 pub use validate::{
