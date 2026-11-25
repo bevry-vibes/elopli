@@ -59,9 +59,14 @@ struct LightCardView: View {
 					Image(systemName: "sun.max")
 						.foregroundStyle(.secondary)
 						.frame(width: 16)
-					Slider(
+					GradientSlider(
 						value: $brightness,
-						in: 0...100,
+						range: 0...100,
+						gradient: Gradient(colors: [
+							Color(white: 0.08),
+							temperatureColor(warmth),
+						]),
+						thumbColor: brightnessColor(brightness),
 						onEditingChanged: { editing in
 							isEditingBrightness = editing
 							if !editing {
@@ -75,6 +80,7 @@ struct LightCardView: View {
 						}
 					)
 					.disabled(device.state == nil)
+					.accessibilityLabel("Brightness")
 					Text("\(Int(brightness.rounded()))%")
 						.font(.caption.monospacedDigit())
 						.frame(width: 38, alignment: .trailing)
@@ -83,9 +89,15 @@ struct LightCardView: View {
 					Image(systemName: "thermometer.medium")
 						.foregroundStyle(.secondary)
 						.frame(width: 16)
-					Slider(
+					GradientSlider(
 						value: $warmth,
-						in: 0...100,
+						range: 0...100,
+						gradient: Gradient(colors: [
+							temperatureColor(0),
+							temperatureColor(50),
+							temperatureColor(100),
+						]),
+						thumbColor: temperatureColor(warmth),
 						onEditingChanged: { editing in
 							isEditingWarmth = editing
 							if !editing {
@@ -99,6 +111,7 @@ struct LightCardView: View {
 						}
 					)
 					.disabled(device.state == nil)
+					.accessibilityLabel("Warmth")
 					Text("\(Int(warmth.rounded()))%")
 						.font(.caption.monospacedDigit())
 						.frame(width: 38, alignment: .trailing)
@@ -185,5 +198,38 @@ struct LightCardView: View {
 		}
 		let frequency = wifi.frequencyMhz == 2400 ? "2.4 GHz" : "5 GHz"
 		return "\(wifi.ssid) · \(frequency) · \(wifi.rssi) dBm (\(wifi.quality))"
+	}
+
+	private func temperatureComponents(
+		_ warmth: Double
+	) -> (r: Double, g: Double, b: Double) {
+		let t = min(1, max(0, warmth / 100))
+		let cool = (r: 0.55, g: 0.77, b: 1.0)
+		let neutral = (r: 1.0, g: 0.93, b: 0.82)
+		let warm = (r: 1.0, g: 0.62, b: 0.29)
+		let (from, to, factor) = t < 0.5
+			? (cool, neutral, t * 2)
+			: (neutral, warm, (t - 0.5) * 2)
+		return (
+			r: from.r + (to.r - from.r) * factor,
+			g: from.g + (to.g - from.g) * factor,
+			b: from.b + (to.b - from.b) * factor
+		)
+	}
+
+	private func temperatureColor(_ warmth: Double) -> Color {
+		let color = temperatureComponents(warmth)
+		return Color(red: color.r, green: color.g, blue: color.b)
+	}
+
+	private func brightnessColor(_ brightness: Double) -> Color {
+		let t = min(1, max(0, brightness / 100))
+		let target = temperatureComponents(warmth)
+		let base = 0.06
+		return Color(
+			red: base + (target.r - base) * t,
+			green: base + (target.g - base) * t,
+			blue: base + (target.b - base) * t
+		)
 	}
 }
