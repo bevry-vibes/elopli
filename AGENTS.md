@@ -27,6 +27,8 @@ this process is documented in the upstream repo's [local tweaks pattern](https:/
 - Keep the CLI non-interactive and usable from Apple Shortcuts. Support absolute paths and JSON output.
 - Read [docs/api.md](docs/api.md) before a change to the protocol layer.
 - Update [DESIGN.md](DESIGN.md) when an evergreen decision changes. It records what is true now; it is not a changelog.
+- Accessibility, keyboard navigation, and localization are deferred until after v1. Do not expand that scope without a new decision.
+- Durations accept a bare number as seconds, `s`, or `ms`; the pulse and sweep default is `1.0s`.
 - The macOS app uses SwiftUI `MenuBarExtra`, `LSUIElement`, and App Intents. It calls the Rust core through UniFFI.
 - Build the macOS app with `./scripts/build-macos.sh`.
 - Do not commit `apps/macos/Elopli/Generated`, `apps/macos/Elopli/build`, or `apps/macos/Elopli/Elopli.xcodeproj`. They are build artifacts.

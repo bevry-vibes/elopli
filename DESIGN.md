@@ -6,7 +6,7 @@ Assisted-by: OpenCode · DeepSeek V4.1 Flash <opencode-opencodego-deepseekv41fla
 
 This document records what is true now, why it is true, and what would make us revisit it.
 It is not a changelog.
-Dated work lives in [`.plans/`](.plans/); hardware evidence lives in [docs/api.md](docs/api.md) and [docs/control-center.md](docs/control-center.md); the verbatim prompt history lives in the [plan companion](.plans/1795599587000-official-client-language.prompts.md).
+Dated work lives in [`.plans/`](.plans/); hardware evidence lives in [docs/api.md](docs/api.md) and [docs/control-center.md](docs/control-center.md); the platform plan lives in [docs/platforms.md](docs/platforms.md); the verbatim prompt history lives in the [plan companion](.plans/1795599587000-official-client-language.prompts.md).
 
 ## 1. Problem
 
@@ -43,13 +43,14 @@ Non-goals:
 | macOS UI | SwiftUI `MenuBarExtra` with `LSUIElement` | Native menu-bar app with no Dock icon. |
 | Rust to Swift bridge | UniFFI | Generated bindings keep the boundary explicit. |
 | Windows UI | Rust with `windows-reactor` | Planned; same core, native controls. |
-| Linux UI | Rust with `gtk4-rs` and `ksni` | Planned; AppIndicator tray is accepted on GNOME. |
-| Linux packaging | AppImage through Soar | Flatpak is shelved. |
+| Linux UI | Rust with `gtk4-rs` and `ksni` | Planned; GNOME needs the AppIndicator extension. |
+| Linux packaging | AppImage built with `appimagetool`/`linuxdeploy`, distributed through Soar | Flatpak is shelved. |
 | Windows packaging | Scoop bucket and a portable ZIP | Inno Setup is shelved. |
 | macOS signing | Apple Development team signing | App Intents do not register from an ad-hoc build. |
 
-The CLI and each UI are thin wrappers around the core.
-The core owns validation, transport, discovery, persistence, and animation.
+The CLI is a thin wrapper around the core.
+The macOS UI is currently a renderer plus a session layer for grouping, live slider writes, config reloads, and discovery presentation.
+The core owns validation, transport, discovery, registry persistence, and animation; it depends on platform services such as `dirs`, `mdns-sd`, file locks, and `curl` only through the transport layer.
 A UI may present state, but it must not implement protocol rules of its own.
 
 ## 4. Device protocol and transport
@@ -107,9 +108,15 @@ The evidence and the transport comparison are in [docs/control-center.md](docs/c
 
 Keep one persistent HTTP connection for an animation.
 A new TCP connection for every keyframe overloads the small HTTP server and can make a light stop answering for about 18 seconds.
-The native transport reuses the connection.
+The native transport shares one process-wide `ureq::Agent`, so refresh, slider writes, and animations reuse the same connection pool.
+The `curl` availability probe is cached once per process.
 The `curl` transport opens a new connection for every request, so the core refuses to animate over `curl`.
 This is a hard safety rule, not a performance hint.
+
+The device registry is written atomically under a file lock.
+Each load records a fingerprint; a save fails with `config_conflict` if another process changed the file first.
+The app reloads the registry while it polls, and the CLI reports an absolute `config path`.
+The loader accepts a UTF-8 BOM and validates duplicate names and hosts case-insensitively.
 
 ## 5. Fade and animation design
 
@@ -124,7 +131,7 @@ These facts were verified on the Back, Left, and Right lights on firmware 1.0.3 
 - Brightness 0 and 1 are physically off. Brightness 2 is the lowest visible level.
 - A fade can pass through values below 2 on its way to off. Those values are not reachable through normal control.
 
-The core keeps `MAX_FADE_MS = 900` as a conservative record of the firmware limit.
+The core keeps `MAX_FADE_MS = 900` and rejects explicit fades above it.
 Animations do not use `durationMs`; they send their own immediate keyframes.
 
 ### 5.2 Frame schedule
@@ -132,7 +139,7 @@ Animations do not use `durationMs`; they send their own immediate keyframes.
 The client sends keyframes itself.
 Each keyframe is an ordinary write with no `durationMs`, so the stored colour fade smooths the step.
 
-- The rate cap is 10 Hz (`ANIMATION_FRAME_MS = 100`).
+- The rate cap is 10 Hz (`FRAME_INTERVAL_MS = 100`). Pulse and sweep validation rejects a duration that cannot reach every endpoint at that rate.
 - When the duration allows, the client sends one step per brightness percent or per mired.
 - The step count is `min(distance, duration / 100 ms)`, with a minimum of one step.
 - A long fade therefore visits every 1% point.
@@ -155,7 +162,8 @@ Every segment receives a weight:
 - The final return has weight `distance / (peak - low)`, clamped to 0 to 1.
 - The sweep uses the mired span for the same calculation.
 
-`distribute_durations` normalises the weights, rounds each segment, keeps a 100 ms floor, and adjusts the largest segment so the sum is exactly `duration_ms`.
+`distribute_durations` normalises the weights, rounds each segment, keeps a floor of `min(100, total / segment_count)`, and adjusts the largest segment so the sum is exactly `duration_ms`.
+Validated animations require at least 100 ms per endpoint segment, so the floor is 100 ms in normal use.
 A 1 s pulse with count 1 from 50% to peak 100 and low 0 therefore splits 250 ms rise, 500 ms fall, and 250 ms return.
 
 ### 5.4 Low hold
@@ -191,7 +199,7 @@ count 2+: off → peak → low → peak → … → off
 Rules:
 
 - Count `n` means `n` peak-to-low fades.
-- The peak is configurable from 0 to 100. Values below 2 are clamped for the peak.
+- The peak is configurable from 2 to 100.
 - The low defaults to 0 (off) and can range from 0 to the peak.
 - The low is sent without an explicit power field, so brightness 0 turns the light off at the low.
 - The next peak sends `on: true`, so the light returns for the next fade.
@@ -218,7 +226,9 @@ Rules:
 - Count `n` means `n` warm-to-cool moves.
 - An optional brightness override holds one brightness for the whole sweep.
 - A brightness override of 0 means "leave brightness alone".
-- The final segment restores the original temperature and, when an override was set, the original brightness.
+- A light that is off or below 2% turns on at 2%, ramps to its stored brightness (or the override) over up to 1 s taken from the initial segment, then sweeps.
+- The final segment restores the original temperature and brightness for a visible light; for an off light it fades to 0% and then restores the exact original power state.
+- The final segment's weight is the larger of its temperature and brightness distances.
 - A sweep has no low hold.
 - The sweep reuses the pulse frame schedule, duration budget, cancellation, and external-change checks.
 
@@ -237,6 +247,11 @@ The pulse checks every frame for durations up to 2 s.
 Longer pulses check every 250 ms.
 The sweep checks every 250 ms.
 This keeps short pulses safe without adding a GET to every long frame.
+
+Animation frames, external checks, and final cancellation checks use a persistent-only request path.
+If the native connection fails mid-animation, the core aborts instead of falling back to `curl`.
+A superseded animation restores its original state before releasing the lock, so Stop and Quit leave the light unchanged.
+An external change is still preserved.
 
 ### 5.8 No easing
 
@@ -274,21 +289,26 @@ The distance-weighted budget and the endpoint hold provide the smoothness.
 
 - Use SwiftUI `MenuBarExtra` with `.menuBarExtraStyle(.window)`.
 - Use `LSUIElement`; there is no Dock icon and no draggable window.
-- The app polls state while it is open and refreshes after an action.
+- The menu panel polls state every five seconds, reloads the registry, and refreshes on activation and after an action.
 - Refresh polling pauses for a light that is animating.
 - The app uses App Intents for Shortcuts.
+- Multi-light intents run in parallel and report per-light outcomes.
+- An empty light selection is an error; only the explicit All Lights entity means all lights.
 - Native App Intents require team signing; an ad-hoc build is rejected by `linkd`.
 
 ### 7.2 Cards and controls
 
 Each light is a card with power, brightness, warmth, WiFi, rename, power-on behaviour, and animation actions.
+The card title is the local registry name; the subtitle shows the light's hardware display name when it differs, so Rename is visible immediately.
 The brightness slider colour follows the active warmth.
 The brightness slider is thin at the low end and thick at the high end.
 The slider control has a glow whose size follows brightness.
-The low glow is absent when the light is off.
-A card shows a drop shadow in the active warmth colour when the light is on.
+The low glow is absent when the light is off and the slider is not being dragged.
+The card uses material and a border; it has no drop shadow.
 
-Durations in the pulse and sweep sheets are in seconds, with a default of 1.0 s.
+Durations in the pulse and sweep sheets accept `1.0s`, `500ms`, `10m`, `1h`, or a bare number as seconds, with a default of 1.0s.
+The CLI accepts the same forms.
+Pulse and sweep durations must leave at least 100 ms per endpoint segment and may be up to one hour.
 The pulse sheet has a dual-handle low/peak range slider.
 The sweep sheet has a brightness override; 0% reads N/A and means "leave brightness alone".
 
@@ -301,7 +321,12 @@ The sweep sheet has a brightness override; 0% reads N/A and means "leave brightn
 - Command-clicking a complete group ungroups its fields and cards.
 - If a card is grouped and one of its fields is Command-clicked, the card unlinks and the field enters the pending state.
 - Group creation copies values from the first card in UI order.
-- Grouped sliders move in tandem during a drag.
+- Card groups are maximal and must not overlap; a newly complete card group replaces any intersecting card group.
+- A field group that is a subset of a card group is redundant and is removed.
+- Group actions apply only to a card group; field-only links do not show Pulse Group or Sweep Group.
+- Grouped sliders move in tandem during a drag, with one write coordinator per linked group.
+- Temperature sync writes mired, not a warmth percentage, so it does not re-quantise.
+- A refresh never overwrites a device whose local revision changed after the refresh started.
 
 ### 7.4 Actions
 
@@ -320,6 +345,7 @@ The group actions run the same animation on every member of the group.
 
 - The discovery list shows known devices first and new devices last.
 - A known device that is present shows a disabled **Added** button.
+- A known device whose advertised address changed shows **Update** to save the new address.
 - A known device that is absent shows a red **Missing** pill.
 - Hovering **Missing** advises a power cycle, a wait for reconnection, and another scan.
 - The header stays top-aligned while the scan runs.
@@ -381,4 +407,6 @@ The group actions run the same animation on every member of the group.
 - AppImage packaging; Flatpak is shelved.
 - Scoop bucket and portable ZIP; Inno Setup is shelved.
 - A stable public repository remote for Elopli.
-- Review whether the stale `MAX_FADE_MS` constant should stay as documentation or be removed.
+- Accessibility, keyboard navigation, and localization are deferred until after v1.
+- Extract the remaining macOS session logic (link graph, slider coordinator, discovery rows) into a shared crate before the Windows/Linux UIs.
+- Add a Windows/Linux CI matrix and real-hardware smoke tests.

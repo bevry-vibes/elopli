@@ -331,16 +331,16 @@ Use HTTP with these rules:
 | --- | --- |
 | Connection | One persistent HTTP/1.1 connection per light. Reuse it for the whole interaction. |
 | Writes | Send the latest value only. Do not queue every slider event. |
-| Rate | At most about 10 writes/s; 4 to 6/s is enough. Keep bursts at or below 15 writes. |
+| Rate | At most about 10 writes/s; 4 to 6/s is enough for a drag. Keep an unpaced burst at or below 15 writes. A paced animation stream may exceed 15 total writes while staying below the rate limit. |
 | Body | `{"numberOfLights":1,"lights":[{"on":1,"brightness":50,"temperature":267}]}`. `on` is 0/1. |
 | Fade | Omit `durationMs` to use the stored `colorChangeDurationMs`, or send `durationMs` per keyframe with a value no shorter than the interval. |
 | Polling | The PUT response already contains the full state. Poll `GET /elgato/lights` at 2 to 5 s, not during a drag. |
 | Failure | Retry a dropped connection with backoff. After the known lockup, wait up to 60 s before hammering. |
 | Destructive calls | Never send `/elgato/restart`, `/elgato/factory-reset`, `/elgato/uart`, or firmware calls during normal control. |
 
-The existing Rust transport can keep one `ureq` agent per light, but native
-sockets from this agent shell fail with `EHOSTUNREACH` because macOS Local
-Network Privacy blocks the responsible process. Apple-signed `curl` and `nc`
+The existing Rust transport shares one process-wide `ureq` agent and connection
+pool, but native sockets from this agent shell fail with `EHOSTUNREACH` because
+macOS Local Network Privacy blocks the responsible process. Apple-signed `curl` and `nc`
 work. This is a TCC restriction, not a missing service on the light. The
 bundled Elopli app needs its own Local Network grant; a CLI launched from
 Terminal inherits Terminal's grant.

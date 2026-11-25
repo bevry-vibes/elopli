@@ -1,0 +1,26 @@
+# Privacy
+
+Elopli does not collect telemetry, analytics, accounts, or cloud data.
+
+## Stored locally
+
+- `devices.json` stores device names, hosts, and ports.
+- The macOS app stores link groups and the launch-at-login preference in `UserDefaults`.
+- The control lock uses a per-light file in the platform state directory.
+- No logs are written by default.
+
+## Discarded
+
+- Device serial numbers.
+- MAC addresses.
+- The mDNS interface identifier.
+
+mDNS hostnames may be shown during discovery, but the add path requires an IPv4 address and stores only that address, not the hostname.
+
+## Network
+
+- The client talks directly to lights over the local network.
+- The public internet is not used.
+- The light API has no authentication or encryption.
+
+Accessibility, localization, and any future diagnostics must preserve these rules.

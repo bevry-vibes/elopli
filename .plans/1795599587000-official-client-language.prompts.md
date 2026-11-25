@@ -597,3 +597,13 @@ Return a concise summary of the findings and the document path when done.
 ### 2026-11-26T01:10:34+08:00
 
 The server restarted while you were investigating. Please continue from where you left off. `docs/control-center.md` does not exist yet, so create it with the findings you have so far and then fill the remaining gaps. Do not repeat completed work; summarise what you already verified, what is still unknown, and finish the document. Keep the same constraints as before: no code changes, no commits, do not probe Left, restore Right, do not send destructive endpoints, and note the Local Network Privacy limitation for native sockets in this shell. When done, report the document path and the executive answer (WebSocket yes/no for our Key Light / Key Light Air on firmware 1.0.3 build 222).
+
+### 2026-11-26T07:02:30+0800
+
+do all
+
+for duration, change its input to be if only number then seconds, if <number>s then seconds, if <number>ms then milliseconds - support the same for the cli - default to "1.0s"
+
+for accessbility, shelve that for after v1
+
+note the pulse app intent does multiple lights sequentially, it should do them together in parallel

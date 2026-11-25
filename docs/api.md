@@ -130,6 +130,7 @@ Add `durationMs` to one light object to set a fade time for that change.
 ```
 
 The device does not echo `durationMs` in the response.
+This client accepts explicit fades up to 900 ms and rejects larger values, because 1000 ms and above snaps on the tested firmware.
 
 ### Validation rules
 
@@ -298,6 +299,8 @@ The client ramps brightness from the current value to a peak, then down to the m
 `duration_ms` is the full animation time.
 It is split by distance across the initial rise, each fade, and the final restore.
 The client sends its own immediate keyframes at up to 10 Hz, or one per percent or mired when the duration allows, so the duration stays exact.
+The requested duration must leave at least 100 ms per endpoint segment; shorter requests are rejected instead of exceeding the write-rate safety limit.
+Durations up to one hour are accepted.
 A count of 3 is:
 
 ```text
@@ -354,8 +357,11 @@ current → warm → cool → warm → cool → warm → cool → original
 
 A brightness override holds one brightness for the whole sweep.
 `0%` leaves the current brightness alone.
+An off light turns on at 2%, ramps to its stored brightness (or the override) before the temperature sweep, then fades to 0% and restores its exact power state.
+The final segment is weighted by the larger of its temperature and brightness distances.
 The sweep restores the original on, brightness, and temperature values when it finishes.
 Cancellation and external-change handling are shared with the pulse.
+A superseded animation restores the original state before the interrupting action writes.
 
 ## Errors
 

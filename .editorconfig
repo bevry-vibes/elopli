@@ -24,3 +24,6 @@ indent_size = 2
 
 [{*.json,*.lsrules}]
 insert_final_newline = true
+
+[*.rs]
+insert_final_newline = true

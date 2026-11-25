@@ -14,6 +14,7 @@ Evergreen design decisions are in [DESIGN.md](DESIGN.md).
 
 macOS is implemented.
 Windows and Fedora are planned with native UIs on the same Rust core.
+Accessibility and localization are planned after v1.
 
 Verified on:
 
@@ -29,8 +30,8 @@ Serial numbers and MAC addresses are discarded by the client.
 - Warmth from 0 (cool) to 100 (warm), plus Kelvin and mired.
 - Rename the light.
 - Power-on behaviour: restore the last setting, or restore defaults.
-- WiFi icon with SSID, frequency, RSSI, and quality on hover.
-- mDNS discovery.
+- WiFi icon with SSID, frequency, RSSI, quality, and address on hover.
+- mDNS discovery with Added, Missing, and address Update states.
 - Native Apple Shortcuts actions with a multi-select light picker and per-action icons.
 - Link lights or individual controls with Command-click.
 - Pulse brightness from the current value to a peak, then through peak-to-minimum cycles, then back to the original values.
@@ -42,12 +43,15 @@ Serial numbers and MAC addresses are discarded by the client.
   The app sends its own immediate keyframes at up to 10 Hz, or one per percent when the duration allows, so the duration stays exact.
   A new action stops a running pulse, and a pulse stops itself when the light changes elsewhere.
   The client uses one persistent connection and never sends animation frames over `curl`.
-- Sweep temperature from warmest to coolest and back to warmest for each count, then restore the original values.
+  Durations accept seconds by default, or an explicit unit: `1.0s`, `500ms`, `1.5`, `10m`, or `1h`.
+  Both editors default to `1.0s`.
+- Sweep temperature from the current value to warmest, then through warm-to-cool cycles, then back to the original values.
   A sweep can hold a fixed brightness for the whole animation.
+  An off light ramps up to its stored brightness first, then sweeps, then turns off.
 - Pulse and sweep editors in each light's menu.
   Refresh polling pauses for the light that is animating.
 - Drag anywhere on a card to reorder. Dropping on another card swaps their positions.
-- Live refresh while the app is open.
+- Live refresh while the menu panel is open and on activation.
 - Native app icon.
 - JSON output from the CLI.
 - Retry and wake handling for a light that drops off the network.
@@ -89,9 +93,9 @@ Prior art that informed this:
 macOS app:
 
 - macOS 14 or later
-- Xcode 27
+- Xcode 27.2 or later
 - Rust 1.100
-- `xcodegen` (`brew install xcodegen`)
+- `xcodegen` 2.48 or later (`brew install xcodegen`)
 
 CLI:
 
@@ -125,7 +129,7 @@ Command-clicking a field on an unlinked card joins that field to the matching gr
 Pending selections use the yellow highlight; committed links use magenta.
 Drag anywhere on a card to reorder it.
 Dropping a card on another card swaps their positions.
-The app refreshes every five seconds while it is open.
+The menu panel refreshes every five seconds and immediately when the app becomes active.
 
 ## Install for Shortcuts
 
@@ -175,45 +179,60 @@ Create `devices.json` in the current directory, or at the platform config path:
 }
 ```
 
-The host can be an IP address or an mDNS name.
+The host can be an IPv4 address or an mDNS name.
 Run `elopli discover` to find devices.
 Run `elopli discover --write` to add them to the registry.
+Only devices that advertise an IPv4 address are written.
+
+The CLI prefers `./devices.json` when it exists, so development and tests can use a local registry.
+The macOS app and App Intents always use the platform config path.
+Run `elopli config path` to see which file the CLI will use.
+The app reloads the registry every five seconds and detects conflicting writes.
 
 Set `ELOPLI_CONFIG` or pass `--config` to use another file.
+The loader accepts a UTF-8 BOM, validates names and hosts case-insensitively, writes atomically, and uses a file lock.
 
 ## CLI
 
 ```sh
 elopli status
-elopli on
+elopli on --all
 elopli off Right
 elopli toggle --all
-elopli brightness 50
-elopli warmth 70
-elopli kelvin 4000
+elopli brightness 50 --all
+elopli warmth 70 --all
+elopli kelvin 4000 --all
 elopli set --on --brightness 60 --warmth 40 --all
 elopli identify Back
 elopli rename Right "Desk Right"
 elopli power-on
 elopli power-on --defaults --brightness 20 --warmth 35 --all
 elopli power-on --last --all
-elopli pulse --count 3 --duration 3000 --value 100
-elopli pulse Left --count 1 --duration 300 --value 80
-elopli sweep --count 1 --duration 3000
-elopli sweep Left --count 2 --duration 4000 --brightness 40
+elopli pulse --count 3 --duration 1.0s --value 100 --all
+elopli pulse Left --count 1 --duration 300ms --value 80
+elopli sweep --count 1 --duration 1.0s --all
+elopli sweep Left --count 2 --duration 4s --brightness 40
 elopli info
 elopli discover
+elopli config path
+elopli config show
 ```
 
+Durations accept a bare number as seconds, or a unit: `s`, `ms`, `m`, or `h`.
+The pulse and sweep default is `1.0s`; the maximum is one hour.
+
 Add `--json` for machine-readable output.
+JSON mode emits an error object on validation or config failures and keeps the documented exit codes:
+`0` success, `1` runtime/partial failure, `2` usage/config error.
+Records include `error_kind` so consumers can distinguish a local error from an offline light.
 
 ### Wake a sleeping light
 
 A light that stays off can drop off the network.
-Use `--wait` to retry until the light answers:
+Use `--wait` to probe until the light answers; the write itself happens once, so a timed-out write is never repeated:
 
 ```sh
-elopli on --wait 180
+elopli on --all --wait 180
 ```
 
 ## How it works
@@ -224,12 +243,17 @@ A write sends a partial JSON object and returns the new state.
 
 Read [docs/api.md](docs/api.md) for the protocol notes.
 Read [docs/shortcuts.md](docs/shortcuts.md) for the Shortcuts actions.
+Read [docs/platforms.md](docs/platforms.md) for the Windows/Linux plan.
+Read [CHANGELOG.md](CHANGELOG.md) for release history.
 
 ## Security
 
 The API has no authentication and no transport encryption.
 Use it only on a trusted local network.
 A request that carries an `Origin` header gets HTTP 403.
+
+Read [SECURITY.md](SECURITY.md) for the security policy and [PRIVACY.md](PRIVACY.md) for the data inventory.
+The client has no cloud service, account system, or telemetry.
 
 ## Prior art
 
@@ -241,8 +265,10 @@ A request that carries an `Origin` header gets HTTP 403.
 ## Development
 
 ```sh
-cargo test --workspace
+cargo test --workspace --locked
 cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo deny check
 ./scripts/build-macos.sh
 ```
 
