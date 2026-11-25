@@ -169,11 +169,26 @@ private struct PanelContentHeightKey: PreferenceKey {
 	}
 }
 
+private struct DiscoveryRow: Identifiable {
+	enum State {
+		case added
+		case missing
+		case new
+	}
+
+	let id: String
+	let name: String
+	let detail: String
+	let state: State
+	let discovered: FfiDiscoveredDevice?
+}
+
 struct DiscoverySheet: View {
 	@ObservedObject var model: AppModel
 	@Environment(\.dismiss) private var dismiss
 
 	var body: some View {
+		let rows = discoveryRows
 		VStack(alignment: .leading, spacing: 14) {
 			HStack {
 				Text("Discover Lights")
@@ -189,7 +204,7 @@ struct DiscoverySheet: View {
 			if model.isScanning {
 				ProgressView("Scanning the local network…")
 					.frame(maxWidth: .infinity, minHeight: 120)
-			} else if model.discovered.isEmpty {
+			} else if rows.isEmpty {
 				ContentUnavailableView(
 					"No lights found",
 					systemImage: "dot.radiowaves.left.and.right",
@@ -197,22 +212,44 @@ struct DiscoverySheet: View {
 				)
 				.frame(maxWidth: .infinity, minHeight: 160)
 			} else {
-				List(model.discovered, id: \.name) { device in
+				List(rows) { row in
 					HStack {
 						VStack(alignment: .leading) {
-							Text(device.name)
-							Text("\(device.product) · \(device.address ?? device.host)")
+							Text(row.name)
+							Text(row.detail)
 								.font(.caption)
 								.foregroundStyle(.secondary)
 						}
 						Spacer()
-						Button("Add") {
-							model.addDiscovered(device)
+						switch row.state {
+						case .added:
+							Button("Added") {}
+								.buttonStyle(.bordered)
+								.disabled(true)
+						case .missing:
+							Text("Missing")
+								.font(.callout)
+								.padding(.horizontal, 10)
+								.padding(.vertical, 4)
+								.foregroundStyle(.red)
+								.background(
+									RoundedRectangle(cornerRadius: 6)
+										.stroke(.red.opacity(0.45), lineWidth: 1)
+								)
+								.opacity(0.75)
+								.help("Not found on the network. Power cycle the light, wait for it to reconnect, then scan again.")
+						case .new:
+							if let device = row.discovered {
+								Button("Add") {
+									model.addDiscovered(device)
+								}
+							}
 						}
 					}
 				}
 				.frame(minHeight: 220)
 			}
+			Spacer(minLength: 0)
 			HStack {
 				Spacer()
 				Button("Done") { dismiss() }
@@ -221,5 +258,42 @@ struct DiscoverySheet: View {
 		}
 		.padding(20)
 		.frame(width: 560, height: 380)
+	}
+
+	private var discoveryRows: [DiscoveryRow] {
+		var rows = model.devices.map { known -> DiscoveryRow in
+			let discovered = model.discovered.first { matches(known, $0) }
+			let detail: String
+			if let discovered {
+				detail = "\(discovered.product) · \(discovered.address ?? discovered.host)"
+			} else {
+				detail = "\(known.info?.product ?? known.host) · \(known.host) · not found"
+			}
+			return DiscoveryRow(
+				id: "known-\(known.name)",
+				name: known.name,
+				detail: detail,
+				state: discovered == nil ? .missing : .added,
+				discovered: discovered
+			)
+		}
+		for device in model.discovered
+		where !model.devices.contains(where: { matches($0, device) }) {
+			rows.append(
+				DiscoveryRow(
+					id: "new-\(device.name)",
+					name: device.name,
+					detail: "\(device.product) · \(device.address ?? device.host)",
+					state: .new,
+					discovered: device
+				)
+			)
+		}
+		return rows
+	}
+
+	private func matches(_ known: LightDevice, _ discovered: FfiDiscoveredDevice) -> Bool {
+		let host = discovered.address ?? discovered.host
+		return known.name == discovered.name || known.host == host
 	}
 }

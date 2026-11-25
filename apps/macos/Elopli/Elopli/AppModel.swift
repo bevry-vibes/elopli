@@ -47,11 +47,21 @@ final class AppModel: ObservableObject {
 	@Published var selectedLinks: Set<LinkTarget> = []
 	@Published private(set) var linkGroups: [LinkGroup] = []
 	@Published private(set) var pulsingDevices: Set<String> = []
+	@Published private(set) var liveBrightness: [String: UInt8] = [:]
+	@Published private(set) var liveWarmth: [String: UInt8] = [:]
 
 	private var config: FfiConfig?
 	private var eventMonitor: Any?
 	private let linkGroupsKey = "ElopliLinkGroupsV2"
 	private static let linkAccent = Color(red: 1.0, green: 0.0, blue: 1.0)
+	private static let sliderWriteInterval = Duration.milliseconds(100)
+	private struct SliderKey: Hashable {
+		let device: String
+		let kind: LinkKind
+	}
+	private var pendingSliderValues: [SliderKey: UInt8] = [:]
+	private var sliderWriteTasks: [SliderKey: Task<Void, Never>] = [:]
+	private var liveClearTasks: [SliderKey: Task<Void, Never>] = [:]
 
 	init() {
 		do {
@@ -240,6 +250,82 @@ final class AppModel: ObservableObject {
 		await update(names: names) { try $0.setWarmth(value: value) }
 	}
 
+	/// Queue a brightness write while a slider is moving. Only the newest
+	/// value is kept, and at most one write is in flight per device and kind.
+	func queueBrightness(_ device: LightDevice, value: UInt8) {
+		enqueueSlider(device: device, kind: .brightness, value: value)
+	}
+
+	/// Queue a warmth write while a slider is moving.
+	func queueWarmth(_ device: LightDevice, value: UInt8) {
+		enqueueSlider(device: device, kind: .warmth, value: value)
+	}
+
+	private func enqueueSlider(device: LightDevice, kind: LinkKind, value: UInt8) {
+		let key = SliderKey(device: device.name, kind: kind)
+		let names = linkedDeviceNames(for: device.name, kind: kind)
+		for name in names {
+			setLive(kind: kind, name: name, value: value)
+		}
+		liveClearTasks[key]?.cancel()
+		liveClearTasks[key] = nil
+		pendingSliderValues[key] = value
+		guard sliderWriteTasks[key] == nil else { return }
+		sliderWriteTasks[key] = Task { [weak self] in
+			guard let self else { return }
+			await self.drainSlider(key: key, device: device)
+		}
+	}
+
+	private func drainSlider(key: SliderKey, device: LightDevice) async {
+		while let value = pendingSliderValues.removeValue(forKey: key) {
+			let started = ContinuousClock.now
+			switch key.kind {
+			case .brightness:
+				await setBrightness(device, value: value)
+			case .warmth:
+				await setWarmth(device, value: value)
+			case .power, .card:
+				break
+			}
+			let elapsed = ContinuousClock.now - started
+			if elapsed < Self.sliderWriteInterval {
+				try? await Task.sleep(for: Self.sliderWriteInterval - elapsed)
+			}
+		}
+		sliderWriteTasks[key] = nil
+		// A value can arrive while the last write is finishing.
+		if let value = pendingSliderValues[key], sliderWriteTasks[key] == nil {
+			enqueueSlider(device: device, kind: key.kind, value: value)
+			return
+		}
+		let names = linkedDeviceNames(for: device.name, kind: key.kind)
+		scheduleLiveClear(key: key, names: names)
+	}
+
+	private func setLive(kind: LinkKind, name: String, value: UInt8?) {
+		switch kind {
+		case .brightness:
+			liveBrightness[name] = value
+		case .warmth:
+			liveWarmth[name] = value
+		case .power, .card:
+			break
+		}
+	}
+
+	private func scheduleLiveClear(key: SliderKey, names: [String]) {
+		liveClearTasks[key]?.cancel()
+		liveClearTasks[key] = Task { [weak self] in
+			try? await Task.sleep(for: .milliseconds(250))
+			guard !Task.isCancelled, let self else { return }
+			for name in names {
+				self.setLive(kind: key.kind, name: name, value: nil)
+			}
+			self.liveClearTasks[key] = nil
+		}
+	}
+
 	func setKelvin(_ device: LightDevice, value: UInt16) async {
 		let names = linkedDeviceNames(for: device.name, kind: .warmth)
 		await update(names: names) { try $0.setKelvin(value: value) }
@@ -292,27 +378,70 @@ final class AppModel: ObservableObject {
 		_ device: LightDevice,
 		count: Int,
 		durationMs: Int,
-		ease: FfiPulseEase,
-		value: Int
+		value: Int,
+		low: Int
 	) async -> FfiPulseOutcome? {
-		pulsingDevices.insert(device.name)
+		let outcomes = await pulseGroup(
+			[device],
+			count: count,
+			durationMs: durationMs,
+			value: value,
+			low: low
+		)
+		return outcomes.first ?? nil
+	}
+
+	func pulseGroup(
+		_ devices: [LightDevice],
+		count: Int,
+		durationMs: Int,
+		value: Int,
+		low: Int
+	) async -> [FfiPulseOutcome?] {
+		guard !devices.isEmpty else { return [] }
+		for device in devices {
+			pulsingDevices.insert(device.name)
+		}
 		defer {
-			pulsingDevices.remove(device.name)
+			for device in devices {
+				pulsingDevices.remove(device.name)
+			}
 			Task { await refresh() }
 		}
-		do {
-			let client = try Self.client(for: device)
-			return try await Task.detached {
-				try client.pulse(
-					count: UInt32(count),
-					durationMs: UInt32(durationMs),
-					ease: ease,
-					value: UInt8(value)
-				)
-			}.value
-		} catch {
-			setError(device, error)
-			return nil
+		return await withTaskGroup(of: (Int, FfiPulseOutcome?, String?).self) { group in
+			for (index, device) in devices.enumerated() {
+				group.addTask {
+					do {
+						let client = try Self.client(for: device)
+						let outcome = try await Task.detached {
+							try client.pulse(
+								count: UInt32(count),
+								durationMs: UInt32(durationMs),
+								value: UInt8(value),
+								low: UInt8(low)
+							)
+						}.value
+						return (index, outcome, nil)
+					} catch {
+						return (index, nil, Self.describe(error))
+					}
+				}
+			}
+			var results = Array<FfiPulseOutcome?>(
+				repeating: nil,
+				count: devices.count
+			)
+			var errors: [Int: String] = [:]
+			for await (index, outcome, error) in group {
+				results[index] = outcome
+				if let error {
+					errors[index] = error
+				}
+			}
+			for (index, error) in errors {
+				setError(devices[index], message: error)
+			}
+			return results
 		}
 	}
 
@@ -320,27 +449,66 @@ final class AppModel: ObservableObject {
 		_ device: LightDevice,
 		count: Int,
 		durationMs: Int,
-		ease: FfiPulseEase,
 		brightness: Int
 	) async -> FfiPulseOutcome? {
-		pulsingDevices.insert(device.name)
+		let outcomes = await sweepGroup(
+			[device],
+			count: count,
+			durationMs: durationMs,
+			brightness: brightness
+		)
+		return outcomes.first ?? nil
+	}
+
+	func sweepGroup(
+		_ devices: [LightDevice],
+		count: Int,
+		durationMs: Int,
+		brightness: Int
+	) async -> [FfiPulseOutcome?] {
+		guard !devices.isEmpty else { return [] }
+		for device in devices {
+			pulsingDevices.insert(device.name)
+		}
 		defer {
-			pulsingDevices.remove(device.name)
+			for device in devices {
+				pulsingDevices.remove(device.name)
+			}
 			Task { await refresh() }
 		}
-		do {
-			let client = try Self.client(for: device)
-			return try await Task.detached {
-				try client.sweep(
-					count: UInt32(count),
-					durationMs: UInt32(durationMs),
-					ease: ease,
-					brightness: brightness > 0 ? UInt8(brightness) : nil
-				)
-			}.value
-		} catch {
-			setError(device, error)
-			return nil
+		return await withTaskGroup(of: (Int, FfiPulseOutcome?, String?).self) { group in
+			for (index, device) in devices.enumerated() {
+				group.addTask {
+					do {
+						let client = try Self.client(for: device)
+						let outcome = try await Task.detached {
+							try client.sweep(
+								count: UInt32(count),
+								durationMs: UInt32(durationMs),
+								brightness: brightness > 0 ? UInt8(brightness) : nil
+							)
+						}.value
+						return (index, outcome, nil)
+					} catch {
+						return (index, nil, Self.describe(error))
+					}
+				}
+			}
+			var results = Array<FfiPulseOutcome?>(
+				repeating: nil,
+				count: devices.count
+			)
+			var errors: [Int: String] = [:]
+			for await (index, outcome, error) in group {
+				results[index] = outcome
+				if let error {
+					errors[index] = error
+				}
+			}
+			for (index, error) in errors {
+				setError(devices[index], message: error)
+			}
+			return results
 		}
 	}
 
@@ -367,8 +535,13 @@ final class AppModel: ObservableObject {
 
 	func addDiscovered(_ device: FfiDiscoveredDevice) {
 		guard let config else { return }
+		let host = device.address ?? device.host
+		guard !devices.contains(where: {
+			$0.name == device.name || $0.host == host
+		}) else {
+			return
+		}
 		do {
-			let host = device.address ?? device.host
 			_ = try config.add(name: device.name, host: host, port: device.port)
 			try config.save()
 			reloadDevices()
@@ -434,6 +607,20 @@ final class AppModel: ObservableObject {
 		linkGroups.contains {
 			$0.kind == .card && $0.deviceNames.contains(deviceName)
 		}
+	}
+
+	func isGrouped(_ device: LightDevice) -> Bool {
+		linkGroups.contains {
+			$0.deviceNames.count >= 2 && $0.deviceNames.contains(device.name)
+		}
+	}
+
+	func groupedDevices(for device: LightDevice) -> [LightDevice] {
+		var names: Set<String> = [device.name]
+		for group in linkGroups where group.deviceNames.contains(device.name) {
+			names.formUnion(group.deviceNames)
+		}
+		return devices.filter { names.contains($0.name) }
 	}
 
 	private func unlinkCardGroup(containing deviceName: String) {
@@ -524,7 +711,15 @@ final class AppModel: ObservableObject {
 			guard let targets = grouped[kind] else { continue }
 			let names = Array(Set(targets.map(\.device)))
 			if names.count >= 2 {
-				link(kind: kind, names: names.sorted())
+				if let existing = linkGroups.first(where: {
+					$0.kind == kind && Set($0.deviceNames) == Set(names)
+				}) {
+					linkGroups.removeAll { $0.id == existing.id }
+				} else {
+					let sorted = names.sorted()
+					link(kind: kind, names: sorted)
+					syncAfterLink(kind: kind, names: sorted)
+				}
 			} else if let name = names.first {
 				if kind != .card,
 					!isFieldLinked(name, kind: kind),
@@ -532,6 +727,7 @@ final class AppModel: ObservableObject {
 				{
 					let joined = Array(Set(anchor + [name])).sorted()
 					link(kind: kind, names: joined)
+					syncAfterLink(kind: kind, names: joined)
 				} else {
 					unlink(name: name, kind: kind)
 				}
@@ -539,6 +735,49 @@ final class AppModel: ObservableObject {
 		}
 		normalizeLinkGroups()
 		saveLinkGroups()
+	}
+
+	/// Apply the first card's visible values to the other members when a
+	/// group is created. The first member follows the UI order, not the
+	/// alphabetical group order.
+	private func syncAfterLink(kind: LinkKind, names: [String]) {
+		guard let anchor = names.first else { return }
+		if let card = linkGroups.first(where: {
+			$0.kind == .card && $0.deviceNames.contains(anchor)
+		}) {
+			syncGroup(kind: .card, names: card.deviceNames)
+		} else {
+			syncGroup(kind: kind, names: names)
+		}
+	}
+
+	private func syncGroup(kind: LinkKind, names: [String]) {
+		let members = devices.filter { names.contains($0.name) }
+		guard members.count >= 2, let source = members.first?.state else { return }
+		let on = source.on
+		let brightness = max(2, source.brightness)
+		let warmth = source.warmth
+		let temperature = source.temperatureMired
+		let targets = Array(members.dropFirst())
+		Task {
+			await updateEach(targets) { _, client in
+				switch kind {
+				case .power:
+					return try client.setOnWithBrightness(on: on, brightness: nil)
+				case .brightness:
+					return try client.setBrightness(value: brightness)
+				case .warmth:
+					return try client.setWarmth(value: warmth)
+				case .card:
+					_ = try client.setBrightness(value: brightness)
+					_ = try client.setWarmth(value: warmth)
+					return try client.setOnWithBrightness(
+						on: on,
+						brightness: on ? brightness : nil
+					)
+				}
+			}
+		}
 	}
 
 	private func link(kind: LinkKind, names: [String]) {
@@ -661,6 +900,12 @@ final class AppModel: ObservableObject {
 	private func setError(_ device: LightDevice, _ error: Error) {
 		if let index = devices.firstIndex(where: { $0.name == device.name }) {
 			devices[index].error = Self.describe(error)
+		}
+	}
+
+	private func setError(_ device: LightDevice, message: String) {
+		if let index = devices.firstIndex(where: { $0.name == device.name }) {
+			devices[index].error = message
 		}
 	}
 }

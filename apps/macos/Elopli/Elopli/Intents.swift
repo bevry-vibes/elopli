@@ -339,33 +339,6 @@ enum PowerOnBehaviorChoice: String, AppEnum {
 	}
 }
 
-enum PulseEaseChoice: String, AppEnum {
-	case linear
-	case easeIn
-	case easeOut
-	case easeInOut
-
-	static var typeDisplayRepresentation = TypeDisplayRepresentation(
-		name: "Pulse Ease"
-	)
-	static var caseDisplayRepresentations: [Self: DisplayRepresentation] = [
-		.linear: "Linear",
-		.easeIn: "Ease In",
-		.easeOut: "Ease Out",
-		.easeInOut: "Ease In Out",
-	]
-
-	var value: FfiPulseEase {
-		switch self {
-		case .linear: return .linear
-		case .easeIn: return .easeIn
-		case .easeOut: return .easeOut
-		case .easeInOut: return .easeInOut
-		}
-	}
-}
-
-
 struct PulseIntent: AppIntent {
 	static var title: LocalizedStringResource = "Pulse Light"
 	static var description = IntentDescription(
@@ -393,13 +366,11 @@ struct PulseIntent: AppIntent {
 
 	@Parameter(
 		title: "Duration",
-		description: "Duration of the entire pulse animation in milliseconds.",
+		description: "Target duration of the pulse animation in milliseconds. The minimum hold can extend it.",
 		default: 3000
 	)
 	var durationMs: Int
 
-	@Parameter(title: "Ease", default: .linear)
-	var ease: PulseEaseChoice
 
 	@Parameter(
 		title: "Peak Value",
@@ -408,11 +379,19 @@ struct PulseIntent: AppIntent {
 	)
 	var value: Int
 
+	@Parameter(
+		title: "Low Value",
+		description: "Low brightness percentage. 0 or 1 turns the light off during the pulse.",
+		default: 0
+	)
+	var low: Int
+
 	func perform() async throws -> some IntentResult & ProvidesDialog {
 		let devices = try IntentSupport.devices(from: lights)
 		let count = UInt32(max(1, min(20, count)))
 		let durationMs = UInt32(max(50, min(10_000, durationMs)))
 		let value = UInt8(max(0, min(100, value)))
+		let low = UInt8(min(Int(value), max(0, min(100, low))))
 		var stopped = 0
 		for device in devices {
 			let client = try IntentSupport.client(for: device)
@@ -420,8 +399,8 @@ struct PulseIntent: AppIntent {
 				try client.pulse(
 					count: count,
 					durationMs: durationMs,
-					ease: ease.value,
-					value: value
+					value: value,
+					low: low
 				)
 			}
 			if !outcome.completed {
@@ -471,8 +450,6 @@ struct SweepLightIntent: AppIntent {
 	)
 	var durationMs: Int
 
-	@Parameter(title: "Ease", default: .linear)
-	var ease: PulseEaseChoice
 
 	@Parameter(
 		title: "Brightness",
@@ -493,7 +470,6 @@ struct SweepLightIntent: AppIntent {
 				try client.sweep(
 					count: count,
 					durationMs: durationMs,
-					ease: ease.value,
 					brightness: brightness > 0 ? UInt8(brightness) : nil
 				)
 			}

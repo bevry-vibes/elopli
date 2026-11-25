@@ -6,6 +6,7 @@ struct GradientSlider: View {
 	let gradient: Gradient
 	let thumbColor: Color
 	var onEditingChanged: (Bool) -> Void = { _ in }
+	var onValueChanged: (Double) -> Void = { _ in }
 
 	@State private var isDragging = false
 
@@ -57,8 +58,10 @@ struct GradientSlider: View {
 						}
 						let location = gesture.location.x - thumbSize / 2
 						let newFraction = min(1, max(0, location / travel))
-						value = range.lowerBound
+						let newValue = range.lowerBound
 							+ newFraction * (range.upperBound - range.lowerBound)
+						value = newValue
+						onValueChanged(newValue)
 					}
 					.onEnded { _ in
 						isDragging = false

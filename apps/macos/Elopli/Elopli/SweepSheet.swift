@@ -2,12 +2,11 @@ import SwiftUI
 
 struct SweepSheet: View {
 	@ObservedObject var model: AppModel
-	let device: LightDevice
+	let devices: [LightDevice]
 	@Environment(\.dismiss) private var dismiss
 
 	@State private var count = 1
-	@State private var durationMs = 3000
-	@State private var ease = PulseEaseOption.linear
+	@State private var durationSeconds = 1.0
 	@State private var brightness = 0.0
 	@State private var isSweeping = false
 	@State private var stopRequested = false
@@ -15,8 +14,13 @@ struct SweepSheet: View {
 
 	var body: some View {
 		VStack(alignment: .leading, spacing: 14) {
-			Text("Sweep \(device.name)")
+			Text(devices.count > 1 ? "Sweep Group" : "Sweep \(devices.first?.name ?? "")")
 				.font(.title3.bold())
+			if devices.count > 1 {
+				Text(devices.map(\.name).joined(separator: ", "))
+					.font(.caption)
+					.foregroundStyle(.secondary)
+			}
 			Text("Each sweep is one warm-to-cool fade. Count 3 runs warm → cool three times, then restores the original values.")
 				.font(.caption)
 				.foregroundStyle(.secondary)
@@ -36,13 +40,13 @@ struct SweepSheet: View {
 				Spacer()
 				TextField(
 					"",
-					value: $durationMs,
-					format: .number
+					value: $durationSeconds,
+					format: .number.precision(.fractionLength(0...2))
 				)
 				.textFieldStyle(.roundedBorder)
 				.frame(width: 76)
 				.multilineTextAlignment(.trailing)
-				Text("ms")
+				Text("s")
 					.foregroundStyle(.secondary)
 			}
 			.disabled(isSweeping)
@@ -52,32 +56,19 @@ struct SweepSheet: View {
 				.foregroundStyle(.secondary)
 
 			HStack {
-				Text("Ease")
-				Spacer()
-				Picker("", selection: $ease) {
-					ForEach(PulseEaseOption.allCases) { option in
-						Text(option.label).tag(option)
-					}
-				}
-				.labelsHidden()
-				.frame(width: 150)
-			}
-			.disabled(isSweeping)
-
-			HStack {
 				Text("Brightness")
 				Slider(value: $brightness, in: 0...100)
-				Text("\(Int(brightness.rounded()))%")
+				Text(brightness < 1 ? "N/A" : "\(Int(brightness.rounded()))%")
 					.font(.caption.monospacedDigit())
 					.frame(width: 38, alignment: .trailing)
 			}
 			.disabled(isSweeping)
 
-			Text("0% keeps the current brightness. Any other value holds that brightness for the whole sweep.")
+			Text("N/A keeps the current brightness. Any other value holds that brightness for the whole sweep.")
 				.font(.caption2)
 				.foregroundStyle(.secondary)
 
-			Text("Refresh polling for this light pauses until the sweep ends.")
+			Text("Refresh polling for \(devices.count == 1 ? "this light" : "these lights") pauses until the sweep ends.")
 				.font(.caption2)
 				.foregroundStyle(.secondary)
 
@@ -95,7 +86,7 @@ struct SweepSheet: View {
 				Spacer()
 				Button("Close") {
 					if isSweeping {
-						model.cancelPulse(device)
+						cancelAll()
 					}
 					dismiss()
 				}
@@ -105,7 +96,7 @@ struct SweepSheet: View {
 					Button("Stop") {
 						stopRequested = true
 						result = "Stopping…"
-						model.cancelPulse(device)
+						cancelAll()
 					}
 				} else {
 					Button("Sweep") {
@@ -119,40 +110,47 @@ struct SweepSheet: View {
 		.frame(width: 420)
 		.onDisappear {
 			if isSweeping {
-				model.cancelPulse(device)
+				cancelAll()
 			}
 		}
 	}
 
+	private func cancelAll() {
+		for device in devices {
+			model.cancelPulse(device)
+		}
+	}
+
 	private func startSweep() {
-		guard !isSweeping else { return }
+		guard !isSweeping, !devices.isEmpty else { return }
 		isSweeping = true
 		stopRequested = false
 		result = nil
 		let count = min(20, max(1, count))
-		let durationMs = min(60_000, max(100, durationMs))
+		let durationMs = min(60_000, max(100, Int((durationSeconds * 1000).rounded())))
 		let brightness = min(100, max(0, Int(brightness.rounded())))
 		Task {
-			let outcome = await model.sweep(
-				device,
+			let outcomes = await model.sweepGroup(
+				devices,
 				count: count,
 				durationMs: durationMs,
-				ease: ease.value,
 				brightness: brightness
 			)
 			isSweeping = false
-			guard let outcome else {
-				result = "Sweep failed."
-				return
-			}
-			if outcome.completed {
+			let completed = outcomes.filter { $0?.completed == true }.count
+			if completed == devices.count {
 				result = "Sweep completed."
 			} else if stopRequested {
 				result = "Sweep stopped."
-			} else if outcome.cancellation == "external-change" {
+			} else if outcomes.contains(where: { $0 == nil }) {
+				result = "Sweep failed for \(devices.count - completed) of \(devices.count) lights."
+			} else if devices.count == 1,
+				let outcome = outcomes.first ?? nil,
+				outcome.cancellation == "external-change"
+			{
 				result = "Sweep stopped after an external change."
 			} else {
-				result = "Sweep stopped by another action."
+				result = "Sweep stopped on \(devices.count - completed) of \(devices.count) lights."
 			}
 		}
 	}

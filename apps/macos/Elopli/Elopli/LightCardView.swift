@@ -12,6 +12,10 @@ struct LightCardView: View {
 	@State private var showPowerOn = false
 	@State private var showPulse = false
 	@State private var showSweep = false
+	@State private var showPulseGroup = false
+	@State private var showSweepGroup = false
+	@State private var wifiHelpPresented = false
+	@State private var wifiHoverTask: Task<Void, Never>?
 
 	init(model: AppModel, device: LightDevice) {
 		self.model = model
@@ -71,12 +75,28 @@ struct LightCardView: View {
 			warmth = Double(device.state?.warmth ?? 50)
 		}
 		.onChange(of: device.state?.brightness) { _, value in
-			if !isEditingBrightness, let value {
+			if !isEditingBrightness,
+				model.liveBrightness[device.name] == nil,
+				let value
+			{
 				brightness = Double(max(2, min(100, value)))
 			}
 		}
 		.onChange(of: device.state?.warmth) { _, value in
-			if !isEditingWarmth, let value {
+			if !isEditingWarmth,
+				model.liveWarmth[device.name] == nil,
+				let value
+			{
+				warmth = Double(value)
+			}
+		}
+		.onChange(of: model.liveBrightness[device.name]) { _, value in
+			if let value {
+				brightness = Double(max(2, min(100, value)))
+			}
+		}
+		.onChange(of: model.liveWarmth[device.name]) { _, value in
+			if let value {
 				warmth = Double(value)
 			}
 		}
@@ -87,10 +107,16 @@ struct LightCardView: View {
 			PowerOnSheet(model: model, device: device)
 		}
 		.sheet(isPresented: $showPulse) {
-			PulseSheet(model: model, device: device)
+			PulseSheet(model: model, devices: [device])
 		}
 		.sheet(isPresented: $showSweep) {
-			SweepSheet(model: model, device: device)
+			SweepSheet(model: model, devices: [device])
+		}
+		.sheet(isPresented: $showPulseGroup) {
+			PulseSheet(model: model, devices: model.groupedDevices(for: device))
+		}
+		.sheet(isPresented: $showSweepGroup) {
+			SweepSheet(model: model, devices: model.groupedDevices(for: device))
 		}
 	}
 
@@ -151,13 +177,17 @@ struct LightCardView: View {
 				onEditingChanged: { editing in
 					isEditingBrightness = editing
 					if !editing {
-						Task {
-							await model.setBrightness(
-								device,
-								value: UInt8(brightness.rounded())
-							)
-						}
+						model.queueBrightness(
+							device,
+							value: UInt8(max(2, min(100, brightness.rounded())))
+						)
 					}
+				},
+				onValueChanged: { value in
+					model.queueBrightness(
+						device,
+						value: UInt8(max(2, min(100, value.rounded())))
+					)
 				}
 			)
 			.disabled(device.state == nil)
@@ -200,13 +230,17 @@ struct LightCardView: View {
 				onEditingChanged: { editing in
 					isEditingWarmth = editing
 					if !editing {
-						Task {
-							await model.setWarmth(
-								device,
-								value: UInt8(warmth.rounded())
-							)
-						}
+						model.queueWarmth(
+							device,
+							value: UInt8(max(0, min(100, warmth.rounded())))
+						)
 					}
+				},
+				onValueChanged: { value in
+					model.queueWarmth(
+						device,
+						value: UInt8(max(0, min(100, value.rounded())))
+					)
 				}
 			)
 			.disabled(device.state == nil)
@@ -244,7 +278,13 @@ struct LightCardView: View {
 				Button("Rename…") { showRename = true }
 				Button("Power On Behaviour…") { showPowerOn = true }
 				Button("Pulse…") { showPulse = true }
+				if model.isGrouped(device) {
+					Button("Pulse Group…") { showPulseGroup = true }
+				}
 				Button("Sweep…") { showSweep = true }
+				if model.isGrouped(device) {
+					Button("Sweep Group…") { showSweepGroup = true }
+				}
 				Button("Identify") {
 					Task { await model.identify(device) }
 				}
@@ -302,7 +342,29 @@ struct LightCardView: View {
 		Image(systemName: device.info?.wifi == nil ? "wifi.slash" : "wifi")
 			.font(.system(size: 14, weight: .regular))
 			.foregroundStyle(wifiColor)
-			.help(wifiHelp)
+			.onHover { hovering in
+				wifiHoverTask?.cancel()
+				if hovering {
+					wifiHoverTask = Task {
+						try? await Task.sleep(for: .milliseconds(500))
+						guard !Task.isCancelled else { return }
+						wifiHelpPresented = true
+					}
+				} else {
+					wifiHelpPresented = false
+				}
+			}
+			.popover(isPresented: $wifiHelpPresented, arrowEdge: .bottom) {
+				Text(wifiHelp)
+					.font(.caption)
+					.fixedSize(horizontal: false, vertical: true)
+					.frame(maxWidth: 280, alignment: .leading)
+					.padding(8)
+			}
+			.onDisappear {
+				wifiHoverTask?.cancel()
+				wifiHelpPresented = false
+			}
 	}
 
 	private var wifiColor: Color {
@@ -318,10 +380,11 @@ struct LightCardView: View {
 
 	private var wifiHelp: String {
 		guard let wifi = device.info?.wifi else {
-			return device.error ?? "Offline"
+			let reason = device.error ?? "Offline"
+			return "\(reason) · IP \(device.host). Power cycle the light, wait for it to reconnect, then refresh."
 		}
 		let frequency = wifi.frequencyMhz == 2400 ? "2.4 GHz" : "5 GHz"
-		return "\(wifi.ssid) · \(frequency) · \(wifi.rssi) dBm (\(wifi.quality))"
+		return "\(wifi.ssid) · \(frequency) · \(wifi.rssi) dBm (\(wifi.quality)) · IP \(device.host)"
 	}
 
 	private func temperatureComponents(
