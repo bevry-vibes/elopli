@@ -25,8 +25,9 @@ Decisions:
 - Fallbacks, shelved: C# WinUI 3, Vala, AppKit.
 - Implementation has not started.
 
-The Python reference CLI keeps the `keylight` command until the Rust CLI replaces it.
-The official client is Optoli.
+The Python reference CLI is temporary.
+It keeps the `keylight` command during the port.
+Remove it after the Rust CLI reaches parity.
 
 ## context
 
@@ -294,9 +295,9 @@ Why UniFFI:
 
 ### Testing and CI
 
-- Keep the Python CLI as the protocol oracle.
-- Keep the fake HTTP device in `tests/fake_device.py`.
-- Add Rust integration tests against the same fake device.
+- Use the Python CLI only as a temporary oracle during the port.
+- Keep the fake HTTP device in `tests/fake_device.py` until the Rust tests have their own fake server.
+- Add Rust integration tests against a fake device.
 - Add UI smoke tests per platform.
 - Use GitHub Actions with `macos-latest`, `windows-latest`, and `ubuntu-22.04`.
 - Pin the Rust toolchain in `rust-toolchain.toml`.
@@ -540,9 +541,51 @@ elgato-key-light/
 `apps/windows/optoli-winui` depends on `optoli-core` directly.
 `apps/macos/Optoli` links `optoli-ffi` through UniFFI.
 
+## retiring the Python reference CLI
+
+The Python CLI was the exploration tool.
+It is not part of the official client.
+
+Once the Rust CLI reaches parity, there is no strong reason to keep it as a shipped CLI:
+
+- It creates two command surfaces and two sets of documentation.
+- It creates two packaging paths, `uv` and Cargo or Homebrew.
+- It creates two bug surfaces and two release cadences.
+- It has no capability that the Rust CLI lacks.
+- The Rust CLI is the supported binary for users, scripts, and Shortcuts.
+
+Keep it only during the port:
+
+- Use it as a temporary oracle against the fake device and the real lights.
+- Compare the JSON output and exit codes.
+- Freeze it when parity is reached.
+
+Parity checklist:
+
+- `status`, `list`, `on`, `off`, `toggle`.
+- `brightness`, `warmth`, `kelvin`, `temperature`, `set`.
+- `rename`, `power-on`.
+- `identify`, `info`, `discover`.
+- JSON output, exit codes, device selection, and config file.
+- Retry and `--wait`.
+
+Retirement steps:
+
+1. Run both CLIs against the same fake device.
+2. Run both CLIs against the real lights.
+3. Compare the JSON records and exit codes.
+4. Remove the Python CLI from the README and install docs.
+5. Delete the Python package, its tests, and the `uv` project files.
+6. Port the fake device to a Rust test server, or keep a small Python test fixture if it is useful.
+7. Remove Python from CI.
+8. Keep [docs/api.md](../docs/api.md) and the git history.
+
+If a quick protocol probe is still useful, keep a small script under `tests/`.
+Do not keep a second user-facing CLI.
+
 ## phases
 
-1. Finish the protocol reference. The Python CLI and [docs/api.md](../docs/api.md) are the source of truth.
+1. Use the Python CLI as the temporary oracle. [docs/api.md](../docs/api.md) is the protocol source of truth.
 2. Build `optoli-core` and the `optoli` Rust CLI.
 3. Spike `windows-reactor` against the checklist.
 4. Build the macOS SwiftUI app and App Intents with UniFFI.
@@ -551,10 +594,11 @@ elgato-key-light/
 7. Build the AppImage and publish it through Soar.
 8. Build the Scoop manifest and CI release flow.
 9. Add self-signing and release automation.
-10. Keep the Python CLI as the protocol oracle.
+10. Remove the Python CLI after parity, or keep it as a dev-only test tool.
 
 ## open questions
 
 1. Windows: does the Reactor spike pass the borderless and no-taskbar checklist?
-2. Should the repository and the Python reference CLI be renamed to Optoli now, or only the official client?
+2. Should the repository be renamed to Optoli now?
 3. Windows GUI and CLI naming: is `Optoli.exe` plus `optoli-cli.exe` with an `optoli` shim acceptable?
+4. Retire the Python CLI after parity, or keep it as a dev-only test tool?

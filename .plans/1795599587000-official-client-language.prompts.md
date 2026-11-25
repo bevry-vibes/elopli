@@ -107,3 +107,7 @@ for windows, how does this scoop manifest work alongside a ci generated release 
 okay, use ksni
 
 use uniffi
+
+## follow-up prompt 7
+
+Justify keeping the python reference cli, once the rust cli from the shared rust core is done?
