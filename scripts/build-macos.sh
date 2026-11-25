@@ -39,7 +39,9 @@ if [ -n "${DEVELOPMENT_TEAM:-}" ]; then
 		-configuration "$([ "$CONFIG" = "release" ] && echo Release || echo Debug)" \
 		-derivedDataPath build \
 		CODE_SIGN_STYLE=Automatic \
+		CODE_SIGN_IDENTITY="Apple Development" \
 		DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
+		-allowProvisioningUpdates \
 		build
 elif [ -n "${SIGN_IDENTITY:-}" ]; then
 	xcodebuild \

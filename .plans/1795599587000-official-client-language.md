@@ -21,7 +21,7 @@ Decisions:
 - Rust to Swift bridge: UniFFI.
 - Packaging: AppImage via Soar now. Flatpak later.
 - Windows distribution: Scoop bucket plus a portable ZIP. Inno Setup later.
-- Code signing: ad-hoc for the app. Native App Intents require a free Apple ID Personal Team. Paid signing is shelved.
+- Code signing: Apple Development team signing for App Intents. Ad-hoc builds cannot register App Intents. Paid notarisation is shelved.
 - Fallbacks, shelved: C# WinUI 3, Vala, AppKit.
 - Implementation has started.
 
@@ -33,8 +33,12 @@ Done and verified on macOS 27.2.1:
 - `optoli` CLI: status, power, brightness, warmth, Kelvin, mired, set, rename, power-on, identify, info, discover, list, config.
 - `optoli-ffi`: UniFFI records and objects.
 - Fake-device integration tests: 6 passing.
-- macOS app: SwiftUI `MenuBarExtra` with cards, WiFi tooltips, sliders, rename, power-on, and App Intents.
+- macOS app: SwiftUI `MenuBarExtra` with cards, WiFi tooltips, gradient sliders, rename, power-on, and App Intents.
 - App build script and headless smoke test.
+- App Intents registered with an Apple Development team signature.
+- Both sliders reflect the active temperature:
+  - The temperature slider runs from cool blue to warm amber.
+  - The brightness slider runs from near-black to the active temperature colour.
 
 Pending:
 
@@ -46,9 +50,10 @@ Pending:
 
 Important finding:
 
-- The ad-hoc signed app is rejected by `linkd` for App Intents with `Unable to get teamId`.
+- An ad-hoc signed app is rejected by `linkd` for App Intents with `Unable to get teamId`.
 - Native Shortcuts need a team-signed bundle.
-- A free Apple ID Personal Team is enough. The paid Developer Program is not required.
+- An Apple Development team signature resolves this.
+- The team-signed build was verified: `linkd` indexed `com.bevry.optoli`, interpolated the AppShortcuts, and accepted the process registration.
 - Without a team, the CLI through **Run Shell Script** remains the Shortcuts path.
 
 ## context
@@ -289,13 +294,13 @@ That is enough for the card interface and the CLI.
 
 App Intents need a team-signed bundle.
 `linkd` rejects ad-hoc apps with `Unable to get teamId`.
-Use a free Apple ID Personal Team in Xcode:
+Use an Apple Development team in Xcode:
 
 ```sh
 DEVELOPMENT_TEAM=XXXXXXXXXX ./scripts/build-macos.sh
 ```
 
-The paid Apple Developer Program is not required for local App Intents.
+The team-signed build registers the App Intents.
 Without a team, use the CLI through **Run Shell Script**.
 
 Useful pieces:
@@ -642,6 +647,5 @@ Do not keep a second user-facing CLI.
 
 ## open questions
 
-1. Do you want to sign in to Xcode with a free Apple ID Personal Team to enable native App Intents?
-2. Windows: does the Reactor spike pass the borderless and no-taskbar checklist?
-3. Windows GUI and CLI naming: is `Optoli.exe` plus `optoli-cli.exe` with an `optoli` shim acceptable?
+1. Windows: does the Reactor spike pass the borderless and no-taskbar checklist?
+2. Windows GUI and CLI naming: is `Optoli.exe` plus `optoli-cli.exe` with an `optoli` shim acceptable?

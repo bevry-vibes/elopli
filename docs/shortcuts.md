@@ -12,8 +12,8 @@ An ad-hoc signed app is rejected by the system `linkd` service with:
 Unable to get teamId from com.bevry.optoli
 ```
 
-Use a free Apple ID Personal Team in Xcode. This is not the paid Apple Developer Program.
-Sign in to Xcode with your Apple ID, then build with your team ID:
+Use your Apple Development team in Xcode.
+The paid Apple Developer Program is not required for local App Intents.
 
 ```sh
 DEVELOPMENT_TEAM=XXXXXXXXXX ./scripts/build-macos.sh
@@ -21,6 +21,7 @@ DEVELOPMENT_TEAM=XXXXXXXXXX ./scripts/build-macos.sh
 
 The team ID is shown in Xcode under Settings > Accounts.
 
+A team-signed build registers the App Intents with Shortcuts.
 Without a team-signed build, use the CLI fallback below.
 
 ## Install

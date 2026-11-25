@@ -70,8 +70,8 @@ Click the lightbulb in the menu bar.
 
 Native App Intents require a team-signed app.
 An ad-hoc build is rejected by the system `linkd` service because it has no team ID.
-Use a free Apple ID Personal Team in Xcode.
-This is not the paid Apple Developer Program.
+Use a free Apple ID Personal Team or your Apple Development team in Xcode.
+The paid Apple Developer Program is not required for local App Intents.
 
 ```sh
 DEVELOPMENT_TEAM=XXXXXXXXXX ./scripts/build-macos.sh
@@ -79,6 +79,8 @@ cp -R apps/macos/Optoli/build/Build/Products/Debug/Optoli.app ~/Applications/
 open ~/Applications/Optoli.app
 ```
 
+The team-signed build registers the App Intents with Shortcuts.
+A team ID is shown in Xcode under Settings > Accounts.
 Without a team-signed build, use the CLI through **Run Shell Script** in Shortcuts.
 
 ## Build the CLI
