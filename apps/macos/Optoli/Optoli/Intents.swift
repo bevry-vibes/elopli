@@ -103,6 +103,12 @@ struct TurnOnIntent: AppIntent {
 	static var description = IntentDescription(
 		"Turn one or more Optoli lights, or all lights, on."
 	)
+	static var displayRepresentation: DisplayRepresentation {
+		DisplayRepresentation(
+			title: "Turn Light On",
+			image: DisplayRepresentation.Image(systemName: "lightbulb")
+		)
+	}
 
 	@Parameter(
 		title: "Lights",
@@ -125,6 +131,12 @@ struct TurnOffIntent: AppIntent {
 	static var description = IntentDescription(
 		"Turn one or more Optoli lights, or all lights, off."
 	)
+	static var displayRepresentation: DisplayRepresentation {
+		DisplayRepresentation(
+			title: "Turn Light Off",
+			image: DisplayRepresentation.Image(systemName: "lightbulb.slash")
+		)
+	}
 
 	@Parameter(
 		title: "Lights",
@@ -147,6 +159,12 @@ struct ToggleIntent: AppIntent {
 	static var description = IntentDescription(
 		"Toggle one or more Optoli lights, or all lights."
 	)
+	static var displayRepresentation: DisplayRepresentation {
+		DisplayRepresentation(
+			title: "Toggle Light",
+			image: DisplayRepresentation.Image(systemName: "lightbulb")
+		)
+	}
 
 	@Parameter(
 		title: "Lights",
@@ -169,6 +187,12 @@ struct SetBrightnessIntent: AppIntent {
 	static var description = IntentDescription(
 		"Set the brightness of one or more Optoli lights, or all lights."
 	)
+	static var displayRepresentation: DisplayRepresentation {
+		DisplayRepresentation(
+			title: "Set Light Brightness",
+			image: DisplayRepresentation.Image(systemName: "sun.max")
+		)
+	}
 
 	@Parameter(
 		title: "Lights",
@@ -199,6 +223,12 @@ struct SetWarmthIntent: AppIntent {
 	static var description = IntentDescription(
 		"Set the warmth of one or more Optoli lights, or all lights."
 	)
+	static var displayRepresentation: DisplayRepresentation {
+		DisplayRepresentation(
+			title: "Set Light Warmth",
+			image: DisplayRepresentation.Image(systemName: "thermometer.medium")
+		)
+	}
 
 	@Parameter(
 		title: "Lights",
@@ -231,6 +261,12 @@ struct GetStateIntent: AppIntent {
 	static var description = IntentDescription(
 		"Read the state of one or more Optoli lights, or all lights."
 	)
+	static var displayRepresentation: DisplayRepresentation {
+		DisplayRepresentation(
+			title: "Get Light State",
+			image: DisplayRepresentation.Image(systemName: "info.circle")
+		)
+	}
 
 	@Parameter(
 		title: "Lights",
@@ -258,6 +294,12 @@ struct RenameIntent: AppIntent {
 	static var description = IntentDescription(
 		"Change the display name of one Optoli light."
 	)
+	static var displayRepresentation: DisplayRepresentation {
+		DisplayRepresentation(
+			title: "Rename Light",
+			image: DisplayRepresentation.Image(systemName: "pencil")
+		)
+	}
 
 	@Parameter(title: "Light", description: "The light to rename.")
 	var light: OptoliLightEntity
@@ -297,11 +339,134 @@ enum PowerOnBehaviorChoice: String, AppEnum {
 	}
 }
 
+enum PulseEaseChoice: String, AppEnum {
+	case linear
+	case easeIn
+	case easeOut
+	case easeInOut
+
+	static var typeDisplayRepresentation = TypeDisplayRepresentation(
+		name: "Pulse Ease"
+	)
+	static var caseDisplayRepresentations: [Self: DisplayRepresentation] = [
+		.linear: "Linear",
+		.easeIn: "Ease In",
+		.easeOut: "Ease Out",
+		.easeInOut: "Ease In Out",
+	]
+
+	var value: FfiPulseEase {
+		switch self {
+		case .linear: return .linear
+		case .easeIn: return .easeIn
+		case .easeOut: return .easeOut
+		case .easeInOut: return .easeInOut
+		}
+	}
+}
+
+enum PulseTargetChoice: String, AppEnum {
+	case brightness
+	case temperature
+	case both
+
+	static var typeDisplayRepresentation = TypeDisplayRepresentation(
+		name: "Pulse Target"
+	)
+	static var caseDisplayRepresentations: [Self: DisplayRepresentation] = [
+		.brightness: "Brightness",
+		.temperature: "Temperature",
+		.both: "Both",
+	]
+
+	var value: FfiPulseTarget {
+		switch self {
+		case .brightness: return .brightness
+		case .temperature: return .temperature
+		case .both: return .both
+		}
+	}
+}
+
+struct PulseIntent: AppIntent {
+	static var title: LocalizedStringResource = "Pulse Light"
+	static var description = IntentDescription(
+		"Pulse brightness or temperature, then restore the original values."
+	)
+	static var displayRepresentation: DisplayRepresentation {
+		DisplayRepresentation(
+			title: "Pulse Light",
+			image: DisplayRepresentation.Image(systemName: "waveform.path.ecg")
+		)
+	}
+
+	@Parameter(
+		title: "Lights",
+		description: "Select one or more lights, or All Lights."
+	)
+	var lights: [OptoliLightEntity]
+
+	@Parameter(
+		title: "Count",
+		description: "Number of pulses.",
+		default: 3
+	)
+	var count: Int
+
+	@Parameter(
+		title: "Duration",
+		description: "Duration of one pulse in milliseconds.",
+		default: 600
+	)
+	var durationMs: Int
+
+	@Parameter(title: "Ease", default: .easeInOut)
+	var ease: PulseEaseChoice
+
+	@Parameter(title: "Target", default: .both)
+	var target: PulseTargetChoice
+
+	@Parameter(
+		title: "Peak Value",
+		description: "Peak percentage for the selected properties.",
+		default: 100
+	)
+	var value: Int
+
+	func perform() async throws -> some IntentResult & ProvidesDialog {
+		let devices = try IntentSupport.devices(from: lights)
+		let count = UInt32(max(1, min(20, count)))
+		let durationMs = UInt32(max(50, min(10_000, durationMs)))
+		let value = UInt8(max(0, min(100, value)))
+		for device in devices {
+			let client = try IntentSupport.client(for: device)
+			_ = try await IntentSupport.run {
+				try client.pulse(
+					count: count,
+					durationMs: durationMs,
+					ease: ease.value,
+					target: target.value,
+					value: value
+				)
+			}
+		}
+		return .result(
+			dialog: "Pulsed \(IntentSupport.names(devices))"
+		)
+	}
+}
+
 struct SetPowerOnIntent: AppIntent {
 	static var title: LocalizedStringResource = "Set Power-On Behaviour"
 	static var description = IntentDescription(
 		"Set what one or more Optoli lights do when they receive power."
 	)
+	static var displayRepresentation: DisplayRepresentation {
+		DisplayRepresentation(
+			title: "Set Power-On Behaviour",
+			image: DisplayRepresentation.Image(systemName: "power")
+		)
+	}
 
 	@Parameter(
 		title: "Lights",
@@ -381,6 +546,14 @@ struct OptoliShortcuts: AppShortcutsProvider {
 			],
 			shortTitle: "Get State",
 			systemImageName: "info.circle"
+		)
+		AppShortcut(
+			intent: PulseIntent(),
+			phrases: [
+				"Pulse \(.applicationName)"
+			],
+			shortTitle: "Pulse",
+			systemImageName: "waveform.path.ecg"
 		)
 	}
 }
