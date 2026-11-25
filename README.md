@@ -1,8 +1,6 @@
-# Optoli
+# Elopli
 
-**open elgato light**
-
-Optoli controls Elgato Key Light and Key Light Air devices over the local network.
+Elopli controls Elgato Key Light and Key Light Air devices over the local network.
 It has a native macOS menu-bar app, a Rust CLI, and a shared Rust core.
 
 The macOS interface is a card for each light.
@@ -34,11 +32,47 @@ Serial numbers and MAC addresses are discarded by the client.
 - Native Apple Shortcuts actions with a multi-select light picker and per-action icons.
 - Link lights or individual controls with Command-click.
 - Pulse brightness, warmth, or both, then restore the original values.
+  A new action stops a running pulse, and a pulse stops itself when the light changes elsewhere.
+  Pulse frames are paced to the transport so the light's small HTTP server is not flooded.
+- Pulse editor in each light's menu with count, duration, ease, target, and peak value.
+  Refresh polling pauses for the light that is pulsing.
 - Drag anywhere on a card to reorder. Dropping on another card swaps their positions.
 - Live refresh while the app is open.
 - Native app icon.
 - JSON output from the CLI.
 - Retry and wake handling for a light that drops off the network.
+
+## Pulse reliability
+
+The Key Light and Key Light Air run firmware 1.0.3 (222), the final release for both.
+Build 220 fixed a bug where Key Light Air became unresponsive after an undetermined amount of time; build 222 added security fixes.
+There is no later firmware, and no older release is more reliable.
+See the [Key Light Air firmware history](https://help.elgato.com/hc/en-us/articles/30938140888973-Elgato-Key-Light-Air-Firmware-Release-History).
+
+There is no open firmware for Key Light Air.
+[Key Right](https://github.com/micthiesen/key-right) replaces the controller in the full-size Key Light with an ESP32-C3, but that is a hardware modification, not a patch for the Air.
+The MK.2 generation uses a WebSocket protocol and is more robust, but it is different hardware.
+
+The small HTTP server is sensitive to bursts of short-lived connections.
+Clients that keep one connection open do better than clients that open a connection per request.
+Elopli therefore:
+
+- keeps a native HTTP connection open and only falls back to `curl` when macOS denies local network access;
+- spaces `curl` pulse frames by 250 ms;
+- pauses refresh polling for the light that is pulsing.
+
+Practical steps:
+
+- Quit Elgato Control Center while using Elopli. It polls and writes the same lights.
+- Prefer a native or terminal run that has Local Network permission.
+- Give each light a DHCP reservation, and use a dedicated 2.4 GHz SSID if the router steers bands aggressively.
+- Power-cycle a light if port 9123 stops accepting connections after a burst.
+
+Prior art that informed this:
+
+- [ioBroker's adapter](https://www.npmjs.com/package/iobroker.elgato-key-light) debounces writes by 200 ms.
+- [python-elgato](https://github.com/frenck/python-elgato) shares one HTTP session.
+- [Harness Automation](https://docs.harnessautomation.com/gem/admin/drivers/elgato_key_light) documents the occasional HTTP server lockup.
 
 ## Requirements
 
@@ -57,7 +91,7 @@ CLI:
 
 ```sh
 DEVELOPMENT_TEAM=XXXXXXXXXX ./scripts/build-macos.sh
-open apps/macos/Optoli/build/Build/Products/Debug/Optoli.app
+open apps/macos/Elopli/build/Build/Products/Debug/Elopli.app
 ```
 
 For a release build:
@@ -89,8 +123,8 @@ The paid Apple Developer Program is not required for local App Intents.
 
 ```sh
 DEVELOPMENT_TEAM=XXXXXXXXXX ./scripts/build-macos.sh
-cp -R apps/macos/Optoli/build/Build/Products/Debug/Optoli.app ~/Applications/
-open ~/Applications/Optoli.app
+cp -R apps/macos/Elopli/build/Build/Products/Debug/Elopli.app ~/Applications/
+open ~/Applications/Elopli.app
 ```
 
 The team-signed build registers the App Intents with Shortcuts.
@@ -100,23 +134,23 @@ Without a team-signed build, use the CLI through **Run Shell Script** in Shortcu
 ## Build the CLI
 
 ```sh
-cargo build --release -p optoli
-./target/release/optoli --help
+cargo build --release -p elopli
+./target/release/elopli --help
 ```
 
 Or install it:
 
 ```sh
-cargo install --path crates/optoli
+cargo install --path crates/elopli
 ```
 
 ## Configure
 
 Create `devices.json` in the current directory, or at the platform config path:
 
-- macOS: `~/Library/Application Support/optoli/devices.json`
-- Linux: `~/.config/optoli/devices.json`
-- Windows: `%APPDATA%\optoli\devices.json`
+- macOS: `~/Library/Application Support/elopli/devices.json`
+- Linux: `~/.config/elopli/devices.json`
+- Windows: `%APPDATA%\elopli\devices.json`
 
 ```json
 {
@@ -129,31 +163,31 @@ Create `devices.json` in the current directory, or at the platform config path:
 ```
 
 The host can be an IP address or an mDNS name.
-Run `optoli discover` to find devices.
-Run `optoli discover --write` to add them to the registry.
+Run `elopli discover` to find devices.
+Run `elopli discover --write` to add them to the registry.
 
-Set `OPTOLI_CONFIG` or pass `--config` to use another file.
+Set `ELOPLI_CONFIG` or pass `--config` to use another file.
 
 ## CLI
 
 ```sh
-optoli status
-optoli on
-optoli off Right
-optoli toggle --all
-optoli brightness 50
-optoli warmth 70
-optoli kelvin 4000
-optoli set --on --brightness 60 --warmth 40 --all
-optoli identify Back
-optoli rename Right "Desk Right"
-optoli power-on
-optoli power-on --defaults --brightness 20 --warmth 35 --all
-optoli power-on --last --all
-optoli pulse --count 3 --duration 600 --ease ease-in-out --target both --value 100
-optoli pulse Left --count 1 --duration 300 --ease linear --target brightness --value 80
-optoli info
-optoli discover
+elopli status
+elopli on
+elopli off Right
+elopli toggle --all
+elopli brightness 50
+elopli warmth 70
+elopli kelvin 4000
+elopli set --on --brightness 60 --warmth 40 --all
+elopli identify Back
+elopli rename Right "Desk Right"
+elopli power-on
+elopli power-on --defaults --brightness 20 --warmth 35 --all
+elopli power-on --last --all
+elopli pulse --count 3 --duration 600 --ease ease-in-out --target both --value 100
+elopli pulse Left --count 1 --duration 300 --ease linear --target brightness --value 80
+elopli info
+elopli discover
 ```
 
 Add `--json` for machine-readable output.
@@ -164,7 +198,7 @@ A light that stays off can drop off the network.
 Use `--wait` to retry until the light answers:
 
 ```sh
-optoli on --wait 180
+elopli on --wait 180
 ```
 
 ## How it works
@@ -197,10 +231,10 @@ cargo fmt --all -- --check
 ./scripts/build-macos.sh
 ```
 
-The macOS app is in `apps/macos/Optoli`.
-The shared core is in `crates/optoli-core`.
-The UniFFI bridge is in `crates/optoli-ffi`.
-The CLI is in `crates/optoli`.
+The macOS app is in `apps/macos/Elopli`.
+The shared core is in `crates/elopli-core`.
+The UniFFI bridge is in `crates/elopli-ffi`.
+The CLI is in `crates/elopli`.
 
 <!-- LICENSE/ -->
 

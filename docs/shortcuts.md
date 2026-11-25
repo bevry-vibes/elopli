@@ -1,7 +1,7 @@
 # Apple Shortcuts
 
-Optoli provides native Shortcuts actions through App Intents.
-The actions are part of `Optoli.app`.
+Elopli provides native Shortcuts actions through App Intents.
+The actions are part of `Elopli.app`.
 
 ## Signing requirement
 
@@ -9,7 +9,7 @@ Native App Intents require a validated app bundle with a team ID.
 An ad-hoc signed app is rejected by the system `linkd` service with:
 
 ```text
-Unable to get teamId from com.bevry.optoli
+Unable to get teamId from com.bevry.elopli
 ```
 
 Use your Apple Development team in Xcode.
@@ -26,11 +26,11 @@ Without a team-signed build, use the CLI fallback below.
 
 ## Install
 
-1. Build with your team ID, or copy a team-signed `Optoli.app` to `~/Applications` or `/Applications`.
+1. Build with your team ID, or copy a team-signed `Elopli.app` to `~/Applications` or `/Applications`.
 2. Open the app once.
 3. Open Shortcuts.
 
-The Optoli actions appear in the action list.
+The Elopli actions appear in the action list.
 
 ## Actions
 
@@ -43,6 +43,11 @@ The Optoli actions appear in the action list.
 - **Rename Light** — change the light display name.
 - **Set Power-On Behaviour** — restore the last setting, or restore defaults.
 - **Pulse Light** — pulse brightness, warmth, or both, then restore the original values.
+
+A new action stops a running pulse and applies its own change.
+A pulse also stops when the light changes outside Elopli, and that external change is preserved.
+Pulse frames are paced conservatively to avoid overloading the light's HTTP server.
+A native client animates every 50 ms; the `curl` fallback animates at most every 250 ms.
 
 The **Lights** parameter is a multi-select picker.
 Select one or more lights, or **All Lights**.
@@ -59,7 +64,7 @@ Pulse parameters:
 ## Local network permission
 
 The first command can show a local network permission prompt.
-Allow it for Optoli.
+Allow it for Elopli.
 Without the grant, the app cannot reach the lights.
 
 ## Shortcut examples
@@ -75,7 +80,7 @@ Without the grant, the app cannot reach the lights.
 The CLI can also run from **Run Shell Script**:
 
 ```sh
-$HOME/.cargo/bin/optoli on --all
+$HOME/.cargo/bin/elopli on --all
 ```
 
 Use the absolute path.

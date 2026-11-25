@@ -1,0 +1,17 @@
+[package]
+name = "elopli-ffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "UniFFI bindings for Elopli"
+
+[lib]
+name = "elopli_ffi"
+crate-type = ["cdylib", "staticlib", "lib"]
+
+[dependencies]
+elopli-core = { path = "../elopli-core" }
+uniffi.workspace = true
+thiserror.workspace = true

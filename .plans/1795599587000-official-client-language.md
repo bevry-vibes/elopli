@@ -2,17 +2,15 @@ Assisted-by: OpenCode · DeepSeek V4.1 Flash <opencode-opencodego-deepseekv41fla
 
 Companion: [1795599587000-official-client-language.prompts.md](./1795599587000-official-client-language.prompts.md)
 
-# Optoli: native per-platform client with a Rust core
+# Elopli: native per-platform client with a Rust core
 
 ## status
 
-Optoli means "open elgato light".
-
 Decisions:
 
-- Codename and product name: Optoli.
-- CLI and executable: `optoli`.
-- Installer and app name: Optoli.
+- Codename and product name: Elopli.
+- CLI and executable: `elopli`.
+- Installer and app name: Elopli.
 - Shared core and CLI: Rust.
 - macOS UI: SwiftUI `MenuBarExtra`.
 - Windows UI: Rust `windows-reactor`.
@@ -29,9 +27,9 @@ Decisions:
 
 Done and verified on macOS 27.2.1:
 
-- `optoli-core`: HTTP, config, mDNS discovery, validation, power-on settings.
-- `optoli` CLI: status, power, brightness, warmth, Kelvin, mired, set, rename, power-on, identify, info, discover, list, config.
-- `optoli-ffi`: UniFFI records and objects.
+- `elopli-core`: HTTP, config, mDNS discovery, validation, power-on settings.
+- `elopli` CLI: status, power, brightness, warmth, Kelvin, mired, set, rename, power-on, identify, info, discover, list, config.
+- `elopli-ffi`: UniFFI records and objects.
 - Fake-device integration tests: 6 passing.
 - macOS app: SwiftUI `MenuBarExtra` with a single column of cards, WiFi tooltips, gradient sliders, rename, power-on, App Intents, drag reorder, and link groups.
 - App build script and headless smoke test.
@@ -66,7 +64,7 @@ Important finding:
 - An ad-hoc signed app is rejected by `linkd` for App Intents with `Unable to get teamId`.
 - Native Shortcuts need a team-signed bundle.
 - An Apple Development team signature resolves this.
-- The team-signed build was verified: `linkd` indexed `com.bevry.optoli`, interpolated the AppShortcuts, and accepted the process registration.
+- The team-signed build was verified: `linkd` indexed `com.bevry.elopli`, interpolated the AppShortcuts, and accepted the process registration.
 - Without a team, the CLI through **Run Shell Script** remains the Shortcuts path.
 
 ## context
@@ -76,7 +74,7 @@ The three lights still answer a local HTTP API on port 9123.
 The API is cracked and verified. See [docs/api.md](../docs/api.md).
 The Rust CLI and the macOS app now use that API.
 
-Optoli must run on macOS, Linux, and Windows.
+Elopli must run on macOS, Linux, and Windows.
 It must be native, with no webview.
 It must be pinned to the menu bar or system tray.
 It must have no Dock icon and no draggable window.
@@ -91,7 +89,7 @@ The project is also a learning exercise for native cross-platform work.
 
 | Platform | UI | Language | Status |
 | --- | --- | --- | --- |
-| Core and CLI | `optoli-core` and `optoli` | Rust | Primary |
+| Core and CLI | `elopli-core` and `elopli` | Rust | Primary |
 | macOS | SwiftUI `MenuBarExtra` + App Intents | Swift | Primary |
 | Windows | WinUI 3 through `windows-reactor` | Rust | Primary, spike first |
 | Fedora | GTK 4 + libadwaita through `gtk4-rs` | Rust | Primary |
@@ -147,7 +145,7 @@ The light provides the data.
 
 macOS CoreWLAN reports the Mac's own WiFi.
 It cannot report each light's signal strength.
-Optoli must use the light's `wifi-info`.
+Elopli must use the light's `wifi-info`.
 
 Hover text:
 
@@ -287,7 +285,7 @@ Resources:
 
 ### macOS SwiftUI
 
-Implemented in `apps/macos/Optoli`.
+Implemented in `apps/macos/Elopli`.
 
 Use `MenuBarExtra` with `.menuBarExtraStyle(.window)`.
 Set `LSUIElement=true` to hide the Dock icon.
@@ -299,7 +297,7 @@ Build:
 
 ```sh
 ./scripts/build-macos.sh
-open apps/macos/Optoli/build/Build/Products/Debug/Optoli.app
+open apps/macos/Elopli/build/Build/Products/Debug/Elopli.app
 ```
 
 The app is ad-hoc signed by default.
@@ -343,7 +341,7 @@ Resources:
 
 UniFFI generates the Swift bindings from the Rust interface.
 
-- Define the API in the `optoli-ffi` crate with UniFFI records, enums, and errors.
+- Define the API in the `elopli-ffi` crate with UniFFI records, enums, and errors.
 - Build the crate as a static library.
 - Run `uniffi-bindgen` to generate Swift and the module map.
 - Add the generated files and the static library to the Xcode target.
@@ -374,8 +372,8 @@ Why UniFFI:
 
 The release ZIP contains only the built app:
 
-- `Optoli.exe` — the WinUI 3 tray app.
-- `optoli-cli.exe` — the CLI, because Windows file names are case-insensitive.
+- `Elopli.exe` — the WinUI 3 tray app.
+- `elopli-cli.exe` — the CLI, because Windows file names are case-insensitive.
 - Windows App Runtime files from `windows-reactor-setup`.
 - App resources and icons.
 - License and README files.
@@ -387,25 +385,25 @@ The manifest is a separate JSON file.
 
 1. CI builds the Windows app.
 2. CI stages the self-contained runtime.
-3. CI creates `optoli-windows-x64.zip`.
+3. CI creates `elopli-windows-x64.zip`.
 4. CI computes the SHA-256 of the ZIP.
 5. CI uploads the ZIP and its `.sha256` file to the GitHub release.
-6. CI generates `optoli.json` with:
+6. CI generates `elopli.json` with:
    - `version`
    - `url` pointing to the release ZIP
    - `hash` with the SHA-256
    - `extract_dir`, if the ZIP has a top-level folder
-   - `bin` for `optoli-cli.exe`, with an alias shim named `optoli`
-   - `shortcuts` for `Optoli.exe`
-   - `post_install` to run `optoli install --autostart`
-   - `uninstaller` to run `optoli uninstall`
-7. CI uploads `optoli.json` as a release asset.
-8. CI can also commit `optoli.json` to the Scoop bucket repository.
+   - `bin` for `elopli-cli.exe`, with an alias shim named `elopli`
+   - `shortcuts` for `Elopli.exe`
+   - `post_install` to run `elopli install --autostart`
+   - `uninstaller` to run `elopli uninstall`
+7. CI uploads `elopli.json` as a release asset.
+8. CI can also commit `elopli.json` to the Scoop bucket repository.
 
 A user can install from the manifest URL directly:
 
 ```powershell
-scoop install https://github.com/<owner>/<repo>/releases/download/v0.1.0/optoli.json
+scoop install https://github.com/<owner>/<repo>/releases/download/v0.1.0/elopli.json
 ```
 
 Scoop supports a manifest URL. This is a one-off install.
@@ -413,7 +411,7 @@ For updates, use a bucket:
 
 ```powershell
 scoop bucket add bevry https://github.com/bevry-vibes/scoop-bucket
-scoop install optoli
+scoop install elopli
 ```
 
 The bucket is better for `scoop update` and version tracking.
@@ -425,15 +423,15 @@ Example manifest shape:
 {
   "version": "0.1.0",
   "description": "Control Elgato Key Lights from the menu bar or system tray.",
-  "homepage": "https://github.com/bevry-vibes/optoli",
+  "homepage": "https://github.com/bevry-vibes/elopli",
   "license": "RPL-1.5",
-  "url": "https://github.com/bevry-vibes/optoli/releases/download/v0.1.0/optoli-windows-x64.zip",
+  "url": "https://github.com/bevry-vibes/elopli/releases/download/v0.1.0/elopli-windows-x64.zip",
   "hash": "<sha256>",
-  "extract_dir": "optoli-windows-x64",
-  "bin": [["optoli-cli.exe", "optoli"]],
-  "shortcuts": [["Optoli.exe", "Optoli"]],
-  "post_install": ["optoli install --autostart"],
-  "uninstaller": { "script": "optoli uninstall" }
+  "extract_dir": "elopli-windows-x64",
+  "bin": [["elopli-cli.exe", "elopli"]],
+  "shortcuts": [["Elopli.exe", "Elopli"]],
+  "post_install": ["elopli install --autostart"],
+  "uninstaller": { "script": "elopli uninstall" }
 }
 ```
 
@@ -518,14 +516,14 @@ When added:
 
 Use an unpackaged, self-contained build.
 `windows-reactor-setup` stages the Windows App Runtime.
-Distribute a ZIP with `optoli install`, and publish a Scoop manifest.
+Distribute a ZIP with `elopli install`, and publish a Scoop manifest.
 Add Inno Setup later if a GUI installer is needed.
 
 ### macOS
 
-Build an `Optoli.app` bundle.
+Build an `Elopli.app` bundle.
 Ad-hoc sign it with `codesign -s -`.
-For a stable local identity, create a self-signed "Optoli Code Signing" certificate in the login keychain and sign with it.
+For a stable local identity, create a self-signed "Elopli Code Signing" certificate in the login keychain and sign with it.
 Distribute a DMG or ZIP.
 Gatekeeper warns on downloaded builds.
 Document `xattr -d com.apple.quarantine`.
@@ -537,7 +535,7 @@ Active:
 | Platform | Method | Cost |
 | --- | --- | --- |
 | macOS | Ad-hoc `codesign -s -` | Free |
-| macOS | Self-signed "Optoli Code Signing" identity for stable TCC | Free |
+| macOS | Self-signed "Elopli Code Signing" identity for stable TCC | Free |
 | Windows | Self-signed certificate for local testing only | Free |
 | Windows | Unsigned public release, SmartScreen warning | Free |
 | Linux | Unsigned AppImage with checksums | Free |
@@ -575,16 +573,16 @@ elgato-key-light/
   Cargo.toml
   rust-toolchain.toml
   crates/
-    optoli-core/
-    optoli/
-    optoli-ffi/
+    elopli-core/
+    elopli/
+    elopli-ffi/
   apps/
     macos/
-      Optoli/
+      Elopli/
     windows/
-      optoli-winui/       Rust windows-reactor
+      elopli-winui/       Rust windows-reactor
     linux/
-      optoli-gtk/         Rust gtk4-rs
+      elopli-gtk/         Rust gtk4-rs
   packaging/
     appimage/
     scoop/
@@ -592,17 +590,17 @@ elgato-key-light/
   tests/
 ```
 
-`optoli-core` holds:
+`elopli-core` holds:
 
 - `LightState`, `AccessoryInfo`, `WifiInfo`, `DeviceSettings`, and `Device`.
-- `OptoliClient` with retry and timeout.
+- `ElopliClient` with retry and timeout.
 - `DeviceStore` for the JSON registry.
 - `Discovery` with `mdns-sd`.
 - A `snapshot()` call that fetches state and accessory info together.
 
-`apps/linux/optoli-gtk` depends on `optoli-core` directly.
-`apps/windows/optoli-winui` depends on `optoli-core` directly.
-`apps/macos/Optoli` links `optoli-ffi` through UniFFI.
+`apps/linux/elopli-gtk` depends on `elopli-core` directly.
+`apps/windows/elopli-winui` depends on `elopli-core` directly.
+`apps/macos/Elopli` links `elopli-ffi` through UniFFI.
 
 ## retiring the Python reference CLI
 
@@ -649,7 +647,7 @@ Do not keep a second user-facing CLI.
 ## phases
 
 1. Done: use the Python CLI as the temporary oracle. It is retired.
-2. Done: build `optoli-core` and the `optoli` Rust CLI.
+2. Done: build `elopli-core` and the `elopli` Rust CLI.
 3. Done: build the macOS SwiftUI app and App Intents with UniFFI.
 4. Next: spike `windows-reactor` against the checklist.
 5. Next: build the Windows app, or the C# fallback.
@@ -661,4 +659,4 @@ Do not keep a second user-facing CLI.
 ## open questions
 
 1. Windows: does the Reactor spike pass the borderless and no-taskbar checklist?
-2. Windows GUI and CLI naming: is `Optoli.exe` plus `optoli-cli.exe` with an `optoli` shim acceptable?
+2. Windows GUI and CLI naming: is `Elopli.exe` plus `elopli-cli.exe` with an `elopli` shim acceptable?

@@ -27,5 +27,5 @@ this process is documented in the upstream repo's [local tweaks pattern](https:/
 - Read [docs/api.md](docs/api.md) before a change to the protocol layer.
 - The macOS app uses SwiftUI `MenuBarExtra`, `LSUIElement`, and App Intents. It calls the Rust core through UniFFI.
 - Build the macOS app with `./scripts/build-macos.sh`.
-- Do not commit `apps/macos/Optoli/Generated`, `apps/macos/Optoli/build`, or `apps/macos/Optoli/Optoli.xcodeproj`. They are build artifacts.
+- Do not commit `apps/macos/Elopli/Generated`, `apps/macos/Elopli/build`, or `apps/macos/Elopli/Elopli.xcodeproj`. They are build artifacts.
 - Keep the Rust core free of UI and platform code. The CLI and the app are thin wrappers.

@@ -1,0 +1,18 @@
+[package]
+name = "elopli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Command-line client for Elopli, the open Elgato Key Light controller"
+
+[[bin]]
+name = "elopli"
+path = "src/main.rs"
+
+[dependencies]
+elopli-core = { path = "../elopli-core" }
+clap.workspace = true
+rayon.workspace = true
+serde_json.workspace = true

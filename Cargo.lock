@@ -305,6 +305,39 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0e9c71c2167ca323c882b99918929403426e2373ea17242ff5653e0d5e1058be"
 
 [[package]]
+name = "elopli"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "elopli-core",
+ "rayon",
+ "serde_json",
+]
+
+[[package]]
+name = "elopli-core"
+version = "0.1.0"
+dependencies = [
+ "dirs",
+ "fs2",
+ "mdns-sd",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tiny_http",
+ "ureq",
+]
+
+[[package]]
+name = "elopli-ffi"
+version = "0.1.0"
+dependencies = [
+ "elopli-core",
+ "thiserror",
+ "uniffi",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -351,6 +384,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b5c95b673b8f6f7235229ae11c5642d81b04c2e64c1e2fb417bc0cf73ca45f29"
 dependencies = [
  "autocfg",
+]
+
+[[package]]
+name = "fs2"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9564fc758e15025b46aa6643b1b77d047d1a56a1aea6e01002ac0c7026876213"
+dependencies = [
+ "libc",
+ "winapi",
 ]
 
 [[package]]
@@ -644,38 +687,6 @@ name = "option-ext"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
-
-[[package]]
-name = "optoli"
-version = "0.1.0"
-dependencies = [
- "clap",
- "optoli-core",
- "rayon",
- "serde_json",
-]
-
-[[package]]
-name = "optoli-core"
-version = "0.1.0"
-dependencies = [
- "dirs",
- "mdns-sd",
- "serde",
- "serde_json",
- "thiserror",
- "tiny_http",
- "ureq",
-]
-
-[[package]]
-name = "optoli-ffi"
-version = "0.1.0"
-dependencies = [
- "optoli-core",
- "thiserror",
- "uniffi",
-]
 
 [[package]]
 name = "percent-encoding"
@@ -1261,6 +1272,28 @@ checksum = "998d2c24ec099a87daf9467808859f9d82b61f1d9c9701251aea037f514eae0e"
 dependencies = [
  "nom",
 ]
+
+[[package]]
+name = "winapi"
+version = "0.3.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c839a674fcd7a98952e593242ea400abe93992746761e38641405d28b00f419"
+dependencies = [
+ "winapi-i686-pc-windows-gnu",
+ "winapi-x86_64-pc-windows-gnu",
+]
+
+[[package]]
+name = "winapi-i686-pc-windows-gnu"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac3b87c63620426dd9b991e5ce0329eff545bccbbb34f3be09ff6fb6ab51b7b6"
+
+[[package]]
+name = "winapi-x86_64-pc-windows-gnu"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windows-link"

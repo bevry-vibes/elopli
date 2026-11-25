@@ -293,10 +293,28 @@ The response is HTTP 200 with an empty body.
 ## Pulse (client-side)
 
 The light has no pulse endpoint.
+`POST /elgato/identify` flashes the light, but it is not configurable.
 The client ramps brightness or temperature to a peak and back with repeated `PUT` requests.
-It uses `durationMs` on each step and applies the easing curve in the client.
+It uses `durationMs` on each frame and applies the easing curve in the client.
 The pulse restores the exact original on, brightness, and temperature values when it finishes.
 If the light was off, the client turns it on for the pulse and turns it off again at the end.
+
+The pulse is deliberately conservative.
+The light's HTTP server is fragile under bursts of short-lived connections, and prior art limits write pressure:
+
+- [ioBroker's Elgato adapter](https://www.npmjs.com/package/iobroker.elgato-key-light) debounces writes by 200 ms.
+- [python-elgato](https://github.com/frenck/python-elgato) shares one `aiohttp` session for all requests.
+- [Harness Automation](https://docs.harnessautomation.com/gem/admin/drivers/elgato_key_light) notes that the HTTP server on stale firmware occasionally locks up and needs a power cycle.
+
+A native client that keeps one HTTP connection open sends a frame every 50 ms.
+The `curl` fallback opens a new connection per request, so it sends a frame at most every 250 ms.
+That keeps the default pulse to one frame per ramp and avoids exhausting the light's connection table.
+Easing is visible when the duration is long enough for more than one frame.
+
+A cross-process lock stops two pulses from overlapping.
+Every other action writes a cancellation token and waits for the lock before it writes.
+The pulse checks the token before each frame, and compares the light's state with the value it last wrote.
+A user action wins, and an external change is preserved without a restore.
 
 ## Errors
 

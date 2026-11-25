@@ -38,9 +38,9 @@ node_modules/
 target/
 
 # macOS app build artifacts
-apps/macos/Optoli/build/
-apps/macos/Optoli/Optoli.xcodeproj/
-apps/macos/Optoli/Generated/
+apps/macos/Elopli/build/
+apps/macos/Elopli/Elopli.xcodeproj/
+apps/macos/Elopli/Generated/
 
 # =====================================
 # CUSTOM

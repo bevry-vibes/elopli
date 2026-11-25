@@ -1,0 +1,20 @@
+[package]
+name = "elopli-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Core client for Elopli, the open Elgato Key Light controller"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+ureq.workspace = true
+dirs.workspace = true
+fs2.workspace = true
+mdns-sd.workspace = true
+
+[dev-dependencies]
+tiny_http = "0.12"

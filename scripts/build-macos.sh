@@ -3,20 +3,20 @@
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-APP_DIR="$ROOT/apps/macos/Optoli"
+APP_DIR="$ROOT/apps/macos/Elopli"
 TARGET_DIR=${CARGO_TARGET_DIR:-"$ROOT/target"}
 CONFIG=${1:-debug}
 
 cd "$ROOT"
 
 if [ "$CONFIG" = "release" ]; then
-	cargo build --release -p optoli-ffi
-	LIB="$TARGET_DIR/release/liboptoli_ffi.a"
-	DYLIB="$TARGET_DIR/release/liboptoli_ffi.dylib"
+	cargo build --release -p elopli-ffi
+	LIB="$TARGET_DIR/release/libelopli_ffi.a"
+	DYLIB="$TARGET_DIR/release/libelopli_ffi.dylib"
 else
-	cargo build -p optoli-ffi
-	LIB="$TARGET_DIR/debug/liboptoli_ffi.a"
-	DYLIB="$TARGET_DIR/debug/liboptoli_ffi.dylib"
+	cargo build -p elopli-ffi
+	LIB="$TARGET_DIR/debug/libelopli_ffi.a"
+	DYLIB="$TARGET_DIR/debug/libelopli_ffi.dylib"
 fi
 
 rm -rf "$APP_DIR/Generated"
@@ -26,16 +26,16 @@ cargo run -q -p uniffi-bindgen -- generate \
 	--language swift \
 	--out-dir "$APP_DIR/Generated"
 
-cp "$APP_DIR/Generated/optoli_ffiFFI.h" "$APP_DIR/Generated/FFI/"
-cp "$APP_DIR/Generated/optoli_ffiFFI.modulemap" "$APP_DIR/Generated/FFI/module.modulemap"
+cp "$APP_DIR/Generated/elopli_ffiFFI.h" "$APP_DIR/Generated/FFI/"
+cp "$APP_DIR/Generated/elopli_ffiFFI.modulemap" "$APP_DIR/Generated/FFI/module.modulemap"
 cp "$LIB" "$APP_DIR/Generated/FFI/"
 
 cd "$APP_DIR"
 xcodegen generate
 if [ -n "${DEVELOPMENT_TEAM:-}" ]; then
 	xcodebuild \
-		-project Optoli.xcodeproj \
-		-scheme Optoli \
+		-project Elopli.xcodeproj \
+		-scheme Elopli \
 		-configuration "$([ "$CONFIG" = "release" ] && echo Release || echo Debug)" \
 		-derivedDataPath build \
 		CODE_SIGN_STYLE=Automatic \
@@ -45,8 +45,8 @@ if [ -n "${DEVELOPMENT_TEAM:-}" ]; then
 		build
 elif [ -n "${SIGN_IDENTITY:-}" ]; then
 	xcodebuild \
-		-project Optoli.xcodeproj \
-		-scheme Optoli \
+		-project Elopli.xcodeproj \
+		-scheme Elopli \
 		-configuration "$([ "$CONFIG" = "release" ] && echo Release || echo Debug)" \
 		-derivedDataPath build \
 		CODE_SIGN_STYLE=Manual \
@@ -55,8 +55,8 @@ elif [ -n "${SIGN_IDENTITY:-}" ]; then
 		build
 else
 	xcodebuild \
-		-project Optoli.xcodeproj \
-		-scheme Optoli \
+		-project Elopli.xcodeproj \
+		-scheme Elopli \
 		-configuration "$([ "$CONFIG" = "release" ] && echo Release || echo Debug)" \
 		-derivedDataPath build \
 		CODE_SIGN_STYLE=Manual \
@@ -65,4 +65,4 @@ else
 		build
 fi
 
-echo "App: $APP_DIR/build/Build/Products/$([ "$CONFIG" = "release" ] && echo Release || echo Debug)/Optoli.app"
+echo "App: $APP_DIR/build/Build/Products/$([ "$CONFIG" = "release" ] && echo Release || echo Debug)/Elopli.app"

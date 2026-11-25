@@ -1,9 +1,9 @@
 [workspace]
 resolver = "2"
 members = [
-	"crates/optoli-core",
-	"crates/optoli",
-	"crates/optoli-ffi",
+	"crates/elopli-core",
+	"crates/elopli",
+	"crates/elopli-ffi",
 	"crates/uniffi-bindgen",
 ]
 
@@ -12,7 +12,7 @@ version = "0.1.0"
 edition = "2024"
 license = "RPL-1.5"
 authors = ["Benjamin Lupton <b@lupton.cc>"]
-repository = "https://github.com/bevry-vibes/optoli"
+repository = "https://github.com/bevry-vibes/elopli"
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -22,6 +22,7 @@ ureq = { version = "2.12", default-features = false }
 clap = { version = "4", features = ["derive"] }
 rayon = "1"
 dirs = "7"
+fs2 = "0.4"
 mdns-sd = { version = "0.22", default-features = false }
 uniffi = "0.32"
 
