@@ -47,6 +47,9 @@ The project is also a learning exercise for native cross-platform work.
 | Fedora fallback | GTK 4 + libadwaita | Vala | Shelved |
 | macOS fallback | AppKit `NSStatusItem` + `NSPopover` | Swift | Shelved |
 
+`MenuBarExtra` is the chosen macOS surface. No further question.
+The Linux tray uses the AppIndicator/StatusNotifierItem protocol through `ksni`. This is the accepted AppIndicator approach, not a separate standard.
+
 ## requirements
 
 All items are must, except Apple notarisation.
@@ -194,6 +197,11 @@ Applications can use C, C++, Java, JavaScript, Perl, Python, Rust, Vala, or C#.
 
 For this project, use Rust with `gtk4-rs` and `libadwaita`.
 
+Use `ksni` to implement the tray.
+`ksni` is a Rust crate for the StatusNotifierItem protocol, which is the same AppIndicator protocol that GNOME exposes through its extension.
+It is not a different standard. It is the implementation choice inside the AppIndicator approach.
+`ksni` activation gives the click position for window placement.
+
 Useful pieces:
 
 - `gtk::Window::set_decorated(false)` for no title bar.
@@ -261,6 +269,51 @@ Resources:
 - swift-bridge: <https://chinedufn.github.io/swift-bridge/>
 - cbindgen: <https://github.com/mozilla/cbindgen>
 
+### Rust to Swift bridge
+
+The macOS app is Swift. The core is Rust. They need a bridge. This is FFI.
+
+Options:
+
+1. Manual C ABI with `cbindgen`.
+   - Rust exposes `extern "C"` functions with C-compatible types.
+   - `cbindgen` generates the C header.
+   - Swift imports the header through a bridging header or module map.
+   - Pros: no generator, no runtime, full control.
+   - Cons: you manage strings, arrays, errors, and ownership by hand.
+   - Good for a small, stable API.
+
+2. UniFFI.
+   - Mozilla's generator for Rust FFI.
+   - It reads a Rust interface and generates Swift bindings.
+   - It handles strings, records, enums, options, errors, and async.
+   - Pros: less unsafe glue, ergonomic Swift API, safer as the API grows.
+   - Cons: extra build step and generated code.
+   - Good for a learning repo and a growing API.
+
+3. `swift-bridge`.
+   - A Swift-focused Rust FFI generator.
+   - Simpler than UniFFI in some cases, but a smaller ecosystem.
+   - Good for small APIs.
+
+4. Subprocess.
+   - The Swift app calls the `keylight` CLI.
+   - Pros: no FFI.
+   - Cons: process overhead, error mapping, and a less native design.
+   - Acceptable for a prototype, not for the final app.
+
+Why it matters:
+
+- A bad bridge causes memory bugs, leaks, and lost error details.
+- It changes the build: Xcode must build or link the Rust library.
+- It changes how async work and cancellation cross the boundary.
+- It is hard to replace later, because the Swift UI depends on it.
+
+Recommendation: use UniFFI.
+The core API is small, but it will grow with discovery, settings, and rename.
+UniFFI keeps the Swift side safe and readable.
+Manual C ABI is the fallback if UniFFI adds too much build friction.
+
 ### Testing and CI
 
 - Keep the Python CLI as the protocol oracle.
@@ -295,6 +348,44 @@ Options for this project:
 Recommendation: start with option 1.
 Add Inno Setup later if a GUI installer is needed.
 The app is a tray app, so the ZIP plus self-install is acceptable for the first release.
+
+### Scoop and Winget
+
+`keylight install` is our command. It is not a Windows feature.
+It would copy the app to `%LOCALAPPDATA%\Programs\KeyLight`, create a Start Menu shortcut, register autostart, and provide `keylight uninstall`.
+Scoop can replace most of that.
+
+Scoop:
+
+- Scoop buckets are Git repositories of JSON manifests.
+- A custom bucket needs no central approval. Users add it with `scoop bucket add <name> <repo>`.
+- A bucket can live on a local or network drive.
+- A local manifest can be installed with `scoop install .\keylight.json`.
+- The manifest can set `bin`, `shortcuts`, `post_install`, and `uninstaller`.
+- Scoop installs per user, with no admin rights.
+- This is the preferred Windows distribution.
+
+Winget:
+
+- Public distribution needs a manifest pull request to `microsoft/winget-pkgs`.
+- Local manifest testing needs an elevated `winget settings --enable LocalManifestFiles`.
+- Then `winget install --manifest <path>` works.
+- It is more friction than Scoop, and it is less preferred.
+
+Neither tool uses the Windows Registry as a package registry.
+Scoop uses Git buckets. Winget uses the `winget-pkgs` GitHub repository.
+
+Recommendation: use a Scoop custom bucket first.
+Ship a portable ZIP for direct users.
+Add Winget later if there is demand.
+Inno Setup is optional and can wait.
+
+Resources:
+
+- Scoop buckets: <https://github.com/ScoopInstaller/Scoop/wiki/Buckets>
+- Scoop app manifests: <https://github.com/ScoopInstaller/Scoop/wiki/App-Manifests>
+- Scoop pre/post install scripts: <https://github.com/ScoopInstaller/Scoop/wiki/Pre-Post-(un)install-scripts>
+- Winget local manifests: <https://github.com/microsoft/winget-pkgs/blob/master/doc/Authoring.md>
 
 Resources:
 
@@ -458,7 +549,5 @@ elgato-key-light/
 ## open questions
 
 1. Windows: does the Reactor spike pass the borderless and no-taskbar checklist?
-2. Windows packaging: ZIP plus `keylight install`, or Inno Setup from the start?
-3. macOS: SwiftUI `MenuBarExtra`, or AppKit `NSStatusItem` plus `NSPopover` if the popover needs more control?
-4. Linux: `ksni`, or libayatana-appindicator directly?
-5. Rust FFI: UniFFI, swift-bridge, or a manual C ABI with cbindgen?
+2. Windows distribution: Scoop plus a portable ZIP, or also an Inno Setup installer?
+3. Rust FFI: UniFFI, or a manual C ABI with cbindgen?

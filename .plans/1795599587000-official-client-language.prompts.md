@@ -90,3 +90,10 @@ what is inno setup installer? how does aural-keyboard currently do it?
 shelf anything that isn't self-signing for later, inclding shelving signpath for now (as signpath doesn't seem for hobby projects like this)
 
 do not commence implementation yet
+
+## follow-up prompt 5
+
+what is windows keylight install -- can scoop (pref) or winget (less pref) install our local app, or do they require registry publishing?
+2. menubar extra, I already told you...
+3. what is ksni, I already said appindicator is fine?
+4. what are these? why does it matter?
