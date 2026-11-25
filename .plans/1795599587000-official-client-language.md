@@ -2,20 +2,31 @@ Assisted-by: OpenCode · DeepSeek V4.1 Flash <opencode-opencodego-deepseekv41fla
 
 Companion: [1795599587000-official-client-language.prompts.md](./1795599587000-official-client-language.prompts.md)
 
-# Official client: native per-platform UI with a Rust core
+# Optoli: native per-platform client with a Rust core
 
 ## status
 
+Optoli means "open elgato light".
+
 Decisions:
 
+- Codename and product name: Optoli.
+- CLI and executable: `optoli`.
+- Installer and app name: Optoli.
 - Shared core and CLI: Rust.
-- macOS UI: SwiftUI.
-- Windows UI: Rust `windows-reactor` first.
+- macOS UI: SwiftUI `MenuBarExtra`.
+- Windows UI: Rust `windows-reactor`.
 - Linux UI: Rust `gtk4-rs`.
-- Fallbacks, shelved: C# WinUI 3, Vala, AppKit.
+- Linux tray: `ksni`, which implements the accepted AppIndicator protocol.
+- Rust to Swift bridge: UniFFI.
 - Packaging: AppImage via Soar now. Flatpak later.
+- Windows distribution: Scoop bucket plus a portable ZIP. Inno Setup later.
 - Code signing: self-signing only. All paid and OSS signing programmes are shelved.
+- Fallbacks, shelved: C# WinUI 3, Vala, AppKit.
 - Implementation has not started.
+
+The Python reference CLI keeps the `keylight` command until the Rust CLI replaces it.
+The official client is Optoli.
 
 ## context
 
@@ -24,7 +35,7 @@ The three lights still answer a local HTTP API on port 9123.
 The API is cracked and verified. See [docs/api.md](../docs/api.md).
 A Python CLI proves the interface and controls all three lights now.
 
-The official client must run on macOS, Linux, and Windows.
+Optoli must run on macOS, Linux, and Windows.
 It must be native, with no webview.
 It must be pinned to the menu bar or system tray.
 It must have no Dock icon and no draggable window.
@@ -39,7 +50,7 @@ The project is also a learning exercise for native cross-platform work.
 
 | Platform | UI | Language | Status |
 | --- | --- | --- | --- |
-| Core and CLI | `keylight-core` and `keylight` | Rust | Primary |
+| Core and CLI | `optoli-core` and `optoli` | Rust | Primary |
 | macOS | SwiftUI `MenuBarExtra` + App Intents | Swift | Primary |
 | Windows | WinUI 3 through `windows-reactor` | Rust | Primary, spike first |
 | Fedora | GTK 4 + libadwaita through `gtk4-rs` | Rust | Primary |
@@ -47,8 +58,7 @@ The project is also a learning exercise for native cross-platform work.
 | Fedora fallback | GTK 4 + libadwaita | Vala | Shelved |
 | macOS fallback | AppKit `NSStatusItem` + `NSPopover` | Swift | Shelved |
 
-`MenuBarExtra` is the chosen macOS surface. No further question.
-The Linux tray uses the AppIndicator/StatusNotifierItem protocol through `ksni`. This is the accepted AppIndicator approach, not a separate standard.
+`MenuBarExtra` is chosen. The Linux tray uses AppIndicator through `ksni`. The Swift bridge uses UniFFI.
 
 ## requirements
 
@@ -96,7 +106,7 @@ The light provides the data.
 
 macOS CoreWLAN reports the Mac's own WiFi.
 It cannot report each light's signal strength.
-The official app must use the light's `wifi-info`.
+Optoli must use the light's `wifi-info`.
 
 Hover text:
 
@@ -119,7 +129,7 @@ The client knows it from the registry or mDNS.
 
 ### Rust core
 
-- Use blocking HTTP for the core. It is simpler to expose over FFI.
+- Use blocking HTTP. It is simpler to expose over FFI.
   - `ureq` for HTTP.
   - `serde` and `serde_json` for JSON.
   - `mdns-sd` for discovery.
@@ -127,8 +137,7 @@ The client knows it from the registry or mDNS.
 - Keep one `snapshot()` call that fetches the light state and accessory info together.
 - Validate brightness, mired, display name, and power-on values in the core.
 - Keep the core free of UI and platform code.
-- Expose a C ABI through `keylight-ffi`, or generate Swift bindings with UniFFI.
-- Use `tracing` or `log` with a file sink for diagnostics.
+- Expose the core to Swift through UniFFI.
 
 Resources:
 
@@ -195,7 +204,7 @@ Resources:
 GNOME's documentation says C is the default platform language.
 Applications can use C, C++, Java, JavaScript, Perl, Python, Rust, Vala, or C#.
 
-For this project, use Rust with `gtk4-rs` and `libadwaita`.
+Use Rust with `gtk4-rs` and `libadwaita`.
 
 Use `ksni` to implement the tray.
 `ksni` is a Rust crate for the StatusNotifierItem protocol, which is the same AppIndicator protocol that GNOME exposes through its extension.
@@ -208,8 +217,7 @@ Useful pieces:
 - `gtk::Window::set_resizable(false)` for no resize.
 - `gtk::Window::set_skip_taskbar_hint(true)` for no taskbar entry.
 - `gtk::Window::set_keep_above(true)` for a popover-like window.
-- `ksni` for a StatusNotifierItem tray icon.
-- `ksni` activation gives the click position for window placement.
+- `ksni` for the StatusNotifierItem tray.
 - `libadwaita` for GNOME-native cards and settings.
 - GNOME HIG for layout and spacing.
 
@@ -242,7 +250,7 @@ Use `MenuBarExtra` with `.menuBarExtraStyle(.window)`.
 Set `LSUIElement=true` to hide the Dock icon.
 The menu-bar window is a popover, not a draggable window.
 Add App Intents in the same app target.
-Link the Rust core as a static library.
+Link the Rust core through UniFFI.
 
 Useful pieces:
 
@@ -252,7 +260,7 @@ Useful pieces:
 - `SMAppService.mainApp.register()` for launch at login.
 - `NSLocalNetworkUsageDescription` for the local network prompt.
 - `NSBonjourServices` with `_elg._tcp` for mDNS.
-- UniFFI or a manual C ABI for the Rust core.
+- UniFFI-generated Swift bindings and the Rust static library.
 - An Xcode app target, not a bare SwiftPM executable, for App Intents and the Info.plist.
 
 Resources:
@@ -266,53 +274,23 @@ Resources:
 - `NSBonjourServices`: <https://developer.apple.com/documentation/bundleresources/information-property-list/nsbonjureservices>
 - `SMAppService`: <https://developer.apple.com/documentation/servicemanagement/smappservice>
 - UniFFI: <https://mozilla.github.io/uniffi-rs/>
-- swift-bridge: <https://chinedufn.github.io/swift-bridge/>
-- cbindgen: <https://github.com/mozilla/cbindgen>
 
-### Rust to Swift bridge
+### UniFFI bridge
 
-The macOS app is Swift. The core is Rust. They need a bridge. This is FFI.
+UniFFI generates the Swift bindings from the Rust interface.
 
-Options:
+- Define the API in the `optoli-ffi` crate with UniFFI records, enums, and errors.
+- Build the crate as a static library.
+- Run `uniffi-bindgen` to generate Swift and the module map.
+- Add the generated files and the static library to the Xcode target.
+- Call the generated Swift API from the SwiftUI views and App Intents.
 
-1. Manual C ABI with `cbindgen`.
-   - Rust exposes `extern "C"` functions with C-compatible types.
-   - `cbindgen` generates the C header.
-   - Swift imports the header through a bridging header or module map.
-   - Pros: no generator, no runtime, full control.
-   - Cons: you manage strings, arrays, errors, and ownership by hand.
-   - Good for a small, stable API.
+Why UniFFI:
 
-2. UniFFI.
-   - Mozilla's generator for Rust FFI.
-   - It reads a Rust interface and generates Swift bindings.
-   - It handles strings, records, enums, options, errors, and async.
-   - Pros: less unsafe glue, ergonomic Swift API, safer as the API grows.
-   - Cons: extra build step and generated code.
-   - Good for a learning repo and a growing API.
-
-3. `swift-bridge`.
-   - A Swift-focused Rust FFI generator.
-   - Simpler than UniFFI in some cases, but a smaller ecosystem.
-   - Good for small APIs.
-
-4. Subprocess.
-   - The Swift app calls the `keylight` CLI.
-   - Pros: no FFI.
-   - Cons: process overhead, error mapping, and a less native design.
-   - Acceptable for a prototype, not for the final app.
-
-Why it matters:
-
-- A bad bridge causes memory bugs, leaks, and lost error details.
-- It changes the build: Xcode must build or link the Rust library.
-- It changes how async work and cancellation cross the boundary.
-- It is hard to replace later, because the Swift UI depends on it.
-
-Recommendation: use UniFFI.
-The core API is small, but it will grow with discovery, settings, and rename.
-UniFFI keeps the Swift side safe and readable.
-Manual C ABI is the fallback if UniFFI adds too much build friction.
+- It handles strings, records, enums, options, errors, and async.
+- It removes most unsafe glue.
+- The Swift side stays readable as the API grows.
+- Manual C ABI is the fallback if UniFFI adds too much build friction.
 
 ### Testing and CI
 
@@ -326,69 +304,96 @@ Manual C ABI is the fallback if UniFFI adds too much build friction.
 - Build the AppImage on Ubuntu or Fedora.
 - Publish checksums with every artifact.
 
-## Windows packaging and Inno Setup
+## Windows packaging, Scoop, and Inno Setup
+
+### What the ZIP contains
+
+The release ZIP contains only the built app:
+
+- `Optoli.exe` — the WinUI 3 tray app.
+- `optoli-cli.exe` — the CLI, because Windows file names are case-insensitive.
+- Windows App Runtime files from `windows-reactor-setup`.
+- App resources and icons.
+- License and README files.
+
+The Scoop manifest is not inside the ZIP.
+The manifest is a separate JSON file.
+
+### How CI and Scoop fit together
+
+1. CI builds the Windows app.
+2. CI stages the self-contained runtime.
+3. CI creates `optoli-windows-x64.zip`.
+4. CI computes the SHA-256 of the ZIP.
+5. CI uploads the ZIP and its `.sha256` file to the GitHub release.
+6. CI generates `optoli.json` with:
+   - `version`
+   - `url` pointing to the release ZIP
+   - `hash` with the SHA-256
+   - `extract_dir`, if the ZIP has a top-level folder
+   - `bin` for `optoli-cli.exe`, with an alias shim named `optoli`
+   - `shortcuts` for `Optoli.exe`
+   - `post_install` to run `optoli install --autostart`
+   - `uninstaller` to run `optoli uninstall`
+7. CI uploads `optoli.json` as a release asset.
+8. CI can also commit `optoli.json` to the Scoop bucket repository.
+
+A user can install from the manifest URL directly:
+
+```powershell
+scoop install https://github.com/<owner>/<repo>/releases/download/v0.1.0/optoli.json
+```
+
+Scoop supports a manifest URL. This is a one-off install.
+For updates, use a bucket:
+
+```powershell
+scoop bucket add bevry https://github.com/bevry-vibes/scoop-bucket
+scoop install optoli
+```
+
+The bucket is better for `scoop update` and version tracking.
+The direct manifest URL is a convenience for the first run.
+
+Example manifest shape:
+
+```json
+{
+  "version": "0.1.0",
+  "description": "Control Elgato Key Lights from the menu bar or system tray.",
+  "homepage": "https://github.com/bevry-vibes/optoli",
+  "license": "RPL-1.5",
+  "url": "https://github.com/bevry-vibes/optoli/releases/download/v0.1.0/optoli-windows-x64.zip",
+  "hash": "<sha256>",
+  "extract_dir": "optoli-windows-x64",
+  "bin": [["optoli-cli.exe", "optoli"]],
+  "shortcuts": [["Optoli.exe", "Optoli"]],
+  "post_install": ["optoli install --autostart"],
+  "uninstaller": { "script": "optoli uninstall" }
+}
+```
+
+### Inno Setup
 
 Inno Setup is a free Windows installer generator.
 It creates a single `setup.exe` with a wizard, Start Menu shortcuts, an uninstaller, and an Add/Remove Programs entry.
-It is not a package format and not a runtime.
+It is not a package format or a runtime.
 It can install an unpackaged, self-contained WinUI 3 app.
-It can be signed later if a certificate appears.
+An unsigned installer still triggers SmartScreen.
 
 `aural-keyboard` does not use Inno Setup.
 Its Windows release is a ZIP plus a SHA-256 file.
 The `aural system install` command copies the binary, registers autostart, and provides uninstall.
-The README documents this pattern.
 
-Options for this project:
-
-1. ZIP plus `keylight install` and `keylight uninstall`. Follows aural-keyboard. No installer tooling.
-2. Inno Setup installer. Familiar wizard and Add/Remove Programs entry. More work.
-3. MSIX. Avoid, because unsigned MSIX needs sideloading or developer mode.
-
-Recommendation: start with option 1.
-Add Inno Setup later if a GUI installer is needed.
-The app is a tray app, so the ZIP plus self-install is acceptable for the first release.
-
-### Scoop and Winget
-
-`keylight install` is our command. It is not a Windows feature.
-It would copy the app to `%LOCALAPPDATA%\Programs\KeyLight`, create a Start Menu shortcut, register autostart, and provide `keylight uninstall`.
-Scoop can replace most of that.
-
-Scoop:
-
-- Scoop buckets are Git repositories of JSON manifests.
-- A custom bucket needs no central approval. Users add it with `scoop bucket add <name> <repo>`.
-- A bucket can live on a local or network drive.
-- A local manifest can be installed with `scoop install .\keylight.json`.
-- The manifest can set `bin`, `shortcuts`, `post_install`, and `uninstaller`.
-- Scoop installs per user, with no admin rights.
-- This is the preferred Windows distribution.
-
-Winget:
-
-- Public distribution needs a manifest pull request to `microsoft/winget-pkgs`.
-- Local manifest testing needs an elevated `winget settings --enable LocalManifestFiles`.
-- Then `winget install --manifest <path>` works.
-- It is more friction than Scoop, and it is less preferred.
-
-Neither tool uses the Windows Registry as a package registry.
-Scoop uses Git buckets. Winget uses the `winget-pkgs` GitHub repository.
-
-Recommendation: use a Scoop custom bucket first.
-Ship a portable ZIP for direct users.
-Add Winget later if there is demand.
-Inno Setup is optional and can wait.
+Recommendation: use Scoop plus the portable ZIP first.
+Add Inno Setup later only if a GUI installer is needed.
+Winget can wait.
 
 Resources:
 
 - Scoop buckets: <https://github.com/ScoopInstaller/Scoop/wiki/Buckets>
 - Scoop app manifests: <https://github.com/ScoopInstaller/Scoop/wiki/App-Manifests>
 - Scoop pre/post install scripts: <https://github.com/ScoopInstaller/Scoop/wiki/Pre-Post-(un)install-scripts>
-- Winget local manifests: <https://github.com/microsoft/winget-pkgs/blob/master/doc/Authoring.md>
-
-Resources:
-
 - Inno Setup: <https://jrsoftware.org/isinfo.php>
 - Inno Setup help: <https://jrsoftware.org/ishelp/>
 - aural-keyboard release workflow: <https://github.com/bevry-vibes/aural-keyboard/blob/main/.github/workflows/release.yml>
@@ -449,14 +454,14 @@ When added:
 
 Use an unpackaged, self-contained build.
 `windows-reactor-setup` stages the Windows App Runtime.
-For C# WinUI 3, set `WindowsPackageType=None` and self-contained deployment.
-Distribute a ZIP with `keylight install`, or an Inno Setup installer later.
+Distribute a ZIP with `optoli install`, and publish a Scoop manifest.
+Add Inno Setup later if a GUI installer is needed.
 
 ### macOS
 
-Build an `.app` bundle.
+Build an `Optoli.app` bundle.
 Ad-hoc sign it with `codesign -s -`.
-For a stable local identity, create a self-signed "KeyLight Code Signing" certificate in the login keychain and sign with it.
+For a stable local identity, create a self-signed "Optoli Code Signing" certificate in the login keychain and sign with it.
 Distribute a DMG or ZIP.
 Gatekeeper warns on downloaded builds.
 Document `xattr -d com.apple.quarantine`.
@@ -468,7 +473,7 @@ Active:
 | Platform | Method | Cost |
 | --- | --- | --- |
 | macOS | Ad-hoc `codesign -s -` | Free |
-| macOS | Self-signed "KeyLight Code Signing" identity for stable TCC | Free |
+| macOS | Self-signed "Optoli Code Signing" identity for stable TCC | Free |
 | Windows | Self-signed certificate for local testing only | Free |
 | Windows | Unsigned public release, SmartScreen warning | Free |
 | Linux | Unsigned AppImage with checksums | Free |
@@ -506,48 +511,50 @@ elgato-key-light/
   Cargo.toml
   rust-toolchain.toml
   crates/
-    keylight-core/
-    keylight/
-    keylight-ffi/
+    optoli-core/
+    optoli/
+    optoli-ffi/
   apps/
     macos/
-      KeyLight/
+      Optoli/
     windows/
-      keylight-winui/       Rust windows-reactor
+      optoli-winui/       Rust windows-reactor
     linux/
-      keylight-gtk/         Rust gtk4-rs
+      optoli-gtk/         Rust gtk4-rs
   packaging/
     appimage/
+    scoop/
     windows/
   tests/
 ```
 
-`keylight-core` holds:
+`optoli-core` holds:
 
 - `LightState`, `AccessoryInfo`, `WifiInfo`, `DeviceSettings`, and `Device`.
-- `KeyLightClient` with retry and timeout.
+- `OptoliClient` with retry and timeout.
 - `DeviceStore` for the JSON registry.
 - `Discovery` with `mdns-sd`.
 - A `snapshot()` call that fetches state and accessory info together.
 
-`apps/linux/keylight-gtk` depends on `keylight-core` directly.
-`apps/windows/keylight-winui` depends on `keylight-core` directly.
-`apps/macos/KeyLight` links `keylight-ffi`.
+`apps/linux/optoli-gtk` depends on `optoli-core` directly.
+`apps/windows/optoli-winui` depends on `optoli-core` directly.
+`apps/macos/Optoli` links `optoli-ffi` through UniFFI.
 
 ## phases
 
 1. Finish the protocol reference. The Python CLI and [docs/api.md](../docs/api.md) are the source of truth.
-2. Build `keylight-core` and the Rust CLI.
+2. Build `optoli-core` and the `optoli` Rust CLI.
 3. Spike `windows-reactor` against the checklist.
-4. Build the macOS SwiftUI app and App Intents.
+4. Build the macOS SwiftUI app and App Intents with UniFFI.
 5. Build the Windows app, or the C# fallback.
-6. Build the Linux GTK 4 app.
+6. Build the Linux GTK 4 app with `ksni`.
 7. Build the AppImage and publish it through Soar.
-8. Add self-signing and release automation.
-9. Keep the Python CLI as the protocol oracle.
+8. Build the Scoop manifest and CI release flow.
+9. Add self-signing and release automation.
+10. Keep the Python CLI as the protocol oracle.
 
 ## open questions
 
 1. Windows: does the Reactor spike pass the borderless and no-taskbar checklist?
-2. Windows distribution: Scoop plus a portable ZIP, or also an Inno Setup installer?
-3. Rust FFI: UniFFI, or a manual C ABI with cbindgen?
+2. Should the repository and the Python reference CLI be renamed to Optoli now, or only the official client?
+3. Windows GUI and CLI naming: is `Optoli.exe` plus `optoli-cli.exe` with an `optoli` shim acceptable?

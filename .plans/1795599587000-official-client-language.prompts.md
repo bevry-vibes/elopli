@@ -97,3 +97,13 @@ what is windows keylight install -- can scoop (pref) or winget (less pref) insta
 2. menubar extra, I already told you...
 3. what is ksni, I already said appindicator is fine?
 4. what are these? why does it matter?
+
+## follow-up prompt 6
+
+have the program's codename/installer/app-name be Optoli/optoli (open elgato light)
+
+for windows, how does this scoop manifest work alongside a ci generated release asset? what does the .zip contain (the manifest and the build?) - is it possible to have it be `scoop install <url-to-release-asset-manifest>`?
+
+okay, use ksni
+
+use uniffi
