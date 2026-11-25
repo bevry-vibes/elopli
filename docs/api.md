@@ -87,6 +87,10 @@ GET /elgato/lights
 | `brightness` | integer | 0 to 100 | Brightness in percent |
 | `temperature` | integer | 143 to 344 | Colour temperature in mired |
 
+The device accepts `brightness` 0 and 1, but the light switches off below 2.
+This client enforces 2 to 100 so a brightness change does not turn the light off.
+Use the power command to turn a light off.
+
 The mired value is the reciprocal of the colour temperature in kelvin.
 A larger mired value is a warmer light.
 

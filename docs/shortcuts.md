@@ -37,13 +37,15 @@ The Optoli actions appear in the action list.
 - **Turn Light On** — turn one light, or all lights, on.
 - **Turn Light Off** — turn one light, or all lights, off.
 - **Toggle Light** — toggle one light, or all lights.
-- **Set Light Brightness** — set brightness from 0 to 100.
+- **Set Light Brightness** — set brightness from 2 to 100.
 - **Set Light Warmth** — set warmth from 0 (cool) to 100 (warm).
 - **Get Light State** — read the power, brightness, and warmth.
 - **Rename Light** — change the light display name.
 - **Set Power-On Behaviour** — restore the last setting, or restore defaults.
 
-The **Light** parameter accepts a device name from the registry, or `all`.
+The **Lights** parameter is a multi-select picker.
+Select one or more lights, or **All Lights**.
+The **Rename Light** action uses a single-light picker.
 
 ## Local network permission
 

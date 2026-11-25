@@ -25,13 +25,18 @@ Serial numbers and MAC addresses are discarded by the client.
 ## Features
 
 - Power on and off.
-- Brightness from 0 to 100.
+- Brightness from 2 to 100. The light switches off below 2.
 - Warmth from 0 (cool) to 100 (warm), plus Kelvin and mired.
 - Rename the light.
 - Power-on behaviour: restore the last setting, or restore defaults.
 - WiFi icon with SSID, frequency, RSSI, and quality on hover.
 - mDNS discovery.
-- Native Apple Shortcuts actions through App Intents.
+- Native Apple Shortcuts actions with a multi-select light picker.
+- Link lights or individual controls with Command-click.
+- Group All button for linking every light.
+- Drag to reorder the lights.
+- Live refresh while the app is open.
+- Native app icon.
 - JSON output from the CLI.
 - Retry and wake handling for a light that drops off the network.
 
@@ -51,20 +56,28 @@ CLI:
 ## Build the macOS app
 
 ```sh
-./scripts/build-macos.sh
+DEVELOPMENT_TEAM=XXXXXXXXXX ./scripts/build-macos.sh
 open apps/macos/Optoli/build/Build/Products/Debug/Optoli.app
 ```
 
 For a release build:
 
 ```sh
-./scripts/build-macos.sh release
+DEVELOPMENT_TEAM=XXXXXXXXXX ./scripts/build-macos.sh release
 ```
 
+Use `DEVELOPMENT_TEAM` to sign with your Apple Development team.
+That is required for native App Intents.
+Without it, the build is ad-hoc and App Intents do not register.
+
 The script builds the Rust FFI library, generates the UniFFI Swift bindings, generates the Xcode project, and builds the app.
-The app is ad-hoc signed.
-It has no Dock icon.
+The app has no Dock icon.
 Click the lightbulb in the menu bar.
+
+Hold Command and click a card, toggle, or slider to link lights.
+Linked items change together.
+Drag the handle at the left of a card to reorder it.
+The app refreshes every five seconds while it is open.
 
 ## Install for Shortcuts
 
