@@ -1,0 +1,31 @@
+[workspace]
+resolver = "2"
+members = [
+	"crates/optoli-core",
+	"crates/optoli",
+	"crates/optoli-ffi",
+	"crates/uniffi-bindgen",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "RPL-1.5"
+authors = ["Benjamin Lupton <b@lupton.cc>"]
+repository = "https://github.com/bevry-vibes/optoli"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+ureq = { version = "2.12", default-features = false }
+clap = { version = "4", features = ["derive"] }
+rayon = "1"
+dirs = "7"
+mdns-sd = { version = "0.22", default-features = false }
+uniffi = "0.32"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
