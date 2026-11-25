@@ -2,7 +2,7 @@ Assisted-by: OpenCode · DeepSeek V4.1 Flash <opencode-opencodego-deepseekv41fla
 
 Companion: [1795599587000-official-client-language.prompts.md](./1795599587000-official-client-language.prompts.md)
 
-# Official client language
+# Official client: language and architecture
 
 ## context
 
@@ -11,20 +11,26 @@ The three lights still answer a local HTTP API on port 9123.
 The API is cracked and verified. See [docs/api.md](../docs/api.md).
 A Python CLI proves the interface and controls all three lights now.
 
-The next decision is the language for the official client.
-The candidates are Swift, Rust, and Zig.
+The official client must run on macOS, Linux, and Windows.
+The macOS build must also expose Apple Shortcuts actions.
+The client must support these properties:
+
+- Power on and off.
+- Brightness.
+- Warmth.
+- Rename.
+- Power-on behaviour: restore the last setting, or restore the defaults.
 
 ## what the API requires
 
-The client needs these capabilities:
-
 - HTTP/1.1 over plain TCP, with JSON request and response bodies.
 - A PUT request that carries a partial light object.
+- A full settings object for the power-on behaviour.
 - mDNS browse for `_elg._tcp.local`.
 - Host name resolution for `<name>.local`.
 - Retry on a dropped connection.
 - Parallel requests to three devices.
-- Input validation for brightness (0 to 100) and mired (143 to 344).
+- Input validation for brightness, mired, and the display name.
 
 The API has no authentication and no encryption.
 The client needs no secret store and no cloud service.
@@ -33,137 +39,156 @@ The client needs no secret store and no cloud service.
 
 | Requirement | Priority | Note |
 | --- | --- | --- |
-| Control on/off, brightness, and warmth | Must | The three requested properties |
-| Run from Apple Shortcuts | Must | The reason for the project |
-| Non-interactive CLI | Must | Shortcuts calls a shell command |
+| macOS, Linux, and Windows | Must | The user uses all three |
+| Shared core across platforms | Must | One protocol implementation |
+| Control power, brightness, warmth | Must | The three requested properties |
+| Rename | Must | Device display name |
+| Power-on behaviour | Must | Restore last, or restore defaults |
+| Native Apple Shortcuts actions | Should | The reason for the project |
+| System tray on each platform | Should | A visual surface |
+| Non-interactive CLI | Must | Shortcuts and scripts call it |
 | JSON output | Must | Shortcuts parses the result |
 | mDNS discovery | Should | Avoid a manual IP list |
-| Menu-bar app | Could | A later surface |
-| Cross-platform CLI | Could | macOS is the current target |
-| Native Shortcuts actions | Could | App Intents, not a shell script |
-| Small binary and fast start | Could | Nice for Shortcuts latency |
-| Signed and notarised distribution | Should | Required for a public app |
+| Signed and notarised macOS app | Should | Required for public distribution |
 
-## options
+## language analysis
 
 ### Swift
 
-Swift has the strongest Shortcuts story.
-The App Intents framework creates real Shortcuts actions.
-The actions appear in the Shortcuts editor with typed parameters.
-This is the exact feature that Control Center removed.
+Swift is the best language for the macOS surface.
+App Intents creates real Shortcuts actions with typed parameters.
+SwiftUI and AppKit create a native menu-bar app.
+`URLSession`, `Codable`, and `Network.framework` cover the protocol.
 
-Swift also has native support for the other needs:
+Swift is weaker as the shared base:
 
-- `URLSession` for HTTP.
-- `Codable` for JSON.
-- `Network.framework` `NWBrowser` for Bonjour.
-- `SwiftUI` or `AppKit` for a menu-bar app.
+- SwiftUI and AppKit are Apple-only.
+- App Intents are Apple-only.
+- Linux uses `FoundationNetworking` for `URLSession`.
+- Windows support is official, but it lags Apple platforms.
+- Windows needs bundled curl and zlib for Foundation.
+- Bonjour needs a C library or custom code on Linux and Windows.
 
-A Swift package can hold a shared `KeyLightKit` library, a `keylight` CLI, and an app target.
-The CLI and the app use the same protocol code.
-
-The costs are these:
-
-- macOS only. Linux support needs swift-corelibs-foundation and loses `Network.framework`.
-- App Intents need an app bundle. A bare CLI cannot register Shortcuts actions.
-- A SwiftUI menu-bar app needs an Xcode project, signing, and notarisation.
-
-The CLI can use the shell-script bridge in Shortcuts today.
-The app can add native actions later.
+Swift can hold a shared protocol core on all three platforms.
+It cannot hold a shared user interface.
+It cannot create Shortcuts actions off macOS.
 
 ### Rust
 
-Rust has the strongest CLI story.
+Rust is the best language for the shared base.
 The ecosystem covers every need:
 
 - `clap` for arguments.
 - `serde` for JSON.
 - `ureq` or `reqwest` for HTTP.
 - `mdns-sd` for discovery.
-- `tokio` for parallel requests.
+- Threads or `tokio` for parallel requests.
+- `tray-icon` for a system tray.
 
-A Rust binary is small, fast to start, and easy to distribute.
-It runs on macOS, Linux, and Windows.
+A single Rust workspace can build the core, the CLI, and the tray app for all three platforms.
+The Bevry project `aural-keyboard` already uses this pattern.
+It is one Rust codebase with a native menu-bar app on macOS, a system tray on Linux, and an engine on Windows.
+Its `scripts/package-app.sh` builds a signed `.app` bundle for macOS.
 
-The cost is the Shortcuts integration.
-Rust has no App Intents.
-Shortcuts must call the CLI through "Run Shell Script".
-That works, but the action is a shell command, not a native action with typed fields.
-A native action needs a Swift or Objective-C host app.
-
-Tauri v2 can build a menu-bar app in Rust.
-The Bevry build skill favours Tauri v2 for this case.
-The app still cannot register App Intents.
+Rust cannot register App Intents.
+Shortcuts need a Swift host app.
 
 ### Zig
 
-Zig has the smallest runtime and the best C interop.
-It can call `DNSServiceBrowse` and `libcurl` directly.
-`std.http.Client` and `std.json` cover the protocol.
+Zig is the smallest runtime and has good C interop.
+It can build a static library with a C ABI.
+Swift and Rust can both link that library.
 
-The costs are these:
+Zig is weaker as the shared base:
 
 - The HTTP and JSON libraries are less mature.
-- mDNS needs a hand-written client or the libdns_sd C API.
-- Zig 0.16 still has breaking changes.
-- There is no App Intents support.
-- Fewer examples exist for macOS app bundles and local network permission.
+- mDNS needs a hand-written client or platform C APIs.
+- Zig 0.16 is pre-1.0 and still changes.
+- The tray and UI work remains per platform.
+- The macOS Shortcuts host still needs Swift.
 
-Zig fits a tiny, dependency-free CLI.
-It does not fit the Shortcuts goal as well as Swift.
+A Zig core would share protocol code with Swift and Rust.
+It would not share the user interface or the Shortcuts host.
+It adds a third ecosystem and more platform work.
 
-## comparison
+## does Swift work on Linux and Windows?
 
-Scores run from 1 (weak) to 5 (strong).
+For the core, yes.
+Use `Foundation` and `FoundationNetworking`.
+Use a C library for Bonjour.
+The Windows toolchain is official, but it is less mature.
 
-| Criterion | Weight | Swift | Rust | Zig |
-| --- | --- | --- | --- | --- |
-| Native Shortcuts actions | high | 5 | 1 | 1 |
-| CLI quality | high | 4 | 5 | 3 |
-| macOS integration | high | 5 | 4 | 3 |
-| Cross-platform | low | 2 | 5 | 5 |
-| Ecosystem maturity | high | 5 | 4 | 2 |
-| Build simplicity | medium | 3 | 4 | 2 |
-| Binary size and start time | low | 3 | 4 | 5 |
-| Menu-bar app path | medium | 5 | 4 | 1 |
-| Local network permission | high | 5 | 4 | 3 |
+For the user interface, no.
+SwiftUI and AppKit do not exist on Linux or Windows.
+App Intents do not exist outside macOS.
 
-Swift wins on the requirement that caused the project.
-Rust wins on the CLI and portability.
+Swift is a good macOS surface, not a cross-platform base.
+
+## would a Zig base help?
+
+A Zig base would give Swift and Rust one shared library.
+That is technically sound.
+It does not solve the two hard parts:
+
+- The system tray on three platforms.
+- The native Shortcuts host on macOS.
+
+Rust already solves the first part.
+Swift already solves the second part.
+
+A Zig base adds work without removing work.
+It is not the shortest path for this project.
+
+## architecture options
+
+| Option | Shared core | macOS surface | Linux and Windows surface | Shortcuts | Cost |
+| --- | --- | --- | --- | --- | --- |
+| A. Swift everywhere | Swift core | SwiftUI | Per-OS UI | App Intents | Two or three UI codebases |
+| B. Zig core | Zig C ABI | SwiftUI | Rust or per-OS UI | Swift host | Three ecosystems |
+| C. Rust core and tray | Rust | Rust tray | Rust tray | Swift host | Two languages, one UI codebase |
+| D. Tauri v2 | Rust | Tauri tray | Tauri tray | Swift host | Web UI plus Swift host |
+| E. Rust core, Swift macOS UI | Rust | SwiftUI | Rust tray | App Intents | Two UI codebases |
+
+Option C shares the most code.
+Option E gives the most native macOS feel.
 
 ## recommendation
 
-Use Swift for the official client.
+Use a Rust workspace for the shared core, the CLI, and the tray app.
+Add a small Swift app for the macOS App Intents actions.
 
-The project exists because Shortcuts lost native actions.
-Swift restores those actions with App Intents.
-A Rust or Zig client can control the lights, but it cannot restore the native actions without a Swift host app.
+This choice follows these facts:
 
-Keep the Python CLI as the reference client and the test oracle.
-It documents the protocol and verifies a new client against the same behaviour.
+- Rust gives one protocol implementation for all three platforms.
+- Rust gives one tray implementation for all three platforms.
+- Swift gives native Shortcuts actions on macOS.
+- The Python CLI stays as the reference client and test oracle.
 
-### proposed architecture
+Do not use Zig as the base.
+Use Zig only if the goal is a small experimental core, and accept the extra platform work.
+
+### proposed structure
 
 ```text
 elgato-key-light/
-  Package.swift
-  Sources/
-    KeyLightKit/        protocol, models, config, discovery
-    keylight/           CLI executable
-  App/
-    KeyLightApp/        menu-bar app with App Intents
-  Tests/
-    KeyLightKitTests/   unit tests
-    IntegrationTests/   fake device and live device tests
+  Cargo.toml
+  crates/
+    keylight-core/      protocol, models, config, discovery
+    keylight/           CLI
+    keylight-tray/      tray app for macOS, Linux, and Windows
+  apps/
+    macos/
+      KeyLightShortcuts/  Swift app with App Intents
+  docs/
+  tests/
 ```
 
-`KeyLightKit` holds these parts:
+`keylight-core` holds these parts:
 
-- `LightState`, `AccessoryInfo`, and `Device`.
+- `LightState`, `AccessoryInfo`, `DeviceSettings`, and `Device`.
 - `KeyLightClient` with retry and timeout.
 - `DeviceStore` for the JSON registry.
-- `Discovery` with `NWBrowser` for `_elg._tcp`.
+- `Discovery` with `mdns-sd` for `_elg._tcp`.
 
 `keylight` mirrors the Python commands:
 
@@ -175,12 +200,23 @@ keylight toggle [--all|NAME]
 keylight brightness PERCENT [NAME]
 keylight warmth PERCENT [NAME]
 keylight set --on --brightness 60 --warmth 40 [NAME]
+keylight rename NAME "New Name"
+keylight power-on [NAME]
+keylight power-on --last [NAME]
+keylight power-on --defaults [--brightness N] [--warmth N] [NAME]
 keylight identify [NAME]
 keylight discover
 ```
 
-`KeyLightApp` is a menu-bar agent.
-It has no Dock icon.
+`keylight-tray` is a native tray app.
+It uses the aural-keyboard pattern:
+
+- `tray-icon` for the tray.
+- A small menu with the devices and the common actions.
+- Login autostart per platform.
+- A `.app` bundle on macOS for local network permission.
+
+`KeyLightShortcuts` is a macOS app with no Dock icon.
 It adds App Intents for these actions:
 
 - Turn a light on.
@@ -189,39 +225,50 @@ It adds App Intents for these actions:
 - Set brightness.
 - Set warmth.
 - Get the state of a light.
+- Rename a light.
+- Set the power-on behaviour.
 
 The app declares these Info.plist keys:
 
 - `NSLocalNetworkUsageDescription`.
 - `NSBonjourServices` with `_elg._tcp`.
 
-The CLI launched from Terminal inherits the Terminal local network grant.
-A standalone app needs its own grant.
-A bare SwiftPM CLI that browses Bonjour can embed an Info.plist with `-sectcreate`.
+### how the Swift host talks to the core
+
+Two options:
+
+1. Embed the `keylight` CLI in `KeyLightShortcuts.app/Contents/Helpers/` and call it with `Process`.
+2. Link `keylight-core` as a static library with a C ABI and call it from Swift.
+
+Option 1 is the first step.
+It keeps one implementation, one test suite, and one set of retry rules.
+The helper inherits the app local network permission.
+The app signs the helper with the same identity.
+
+Option 2 is an optimisation for later.
+It removes the process start and the helper binary.
+It adds an FFI layer and a second build step.
+
+### platform notes
+
+- macOS: the tray app and the Swift host need local network permission.
+- macOS: a bare SwiftPM CLI that browses Bonjour can embed an Info.plist with `-sectcreate`.
+- Linux: the tray needs the AppIndicator extension on GNOME. The aural-keyboard README documents this.
+- Windows: the tray uses the native notification area. The CLI needs no permission.
+- All platforms: the CLI run from a terminal inherits the terminal network permission.
 
 ### phases
 
-1. Build `KeyLightKit` and the Swift CLI. Match the Python CLI behaviour.
-2. Add the menu-bar app and the App Intents actions.
-3. Add Homebrew distribution and notarisation.
-4. Keep the Python CLI for protocol regression tests.
-
-### short-term bridge
-
-The Python CLI already works from Shortcuts through "Run Shell Script".
-Use the absolute path to the installed binary.
-The command is non-interactive and supports `--json`.
-
-```sh
-/Users/balupton/.local/bin/keylight on --all
-```
-
-This bridge needs no app bundle and no signing.
+1. Build `keylight-core` and the Rust CLI. Match the Python CLI, including rename and power-on.
+2. Build `keylight-tray` with the aural-keyboard pattern.
+3. Build `KeyLightShortcuts` with the App Intents actions.
+4. Add packaging, signing, notarisation, and Homebrew.
+5. Keep the Python CLI for protocol regression tests.
 
 ## open questions
 
-1. Is the official client macOS only, or must it run on Linux and Windows?
+1. Should the macOS tray use the shared Rust tray, or a native SwiftUI menu bar?
 2. Must the Shortcuts actions be native App Intents, or is "Run Shell Script" enough?
-3. Is a menu-bar app in scope, or only a CLI?
-4. Which distribution channel do you want: Homebrew, direct download, or the App Store?
+3. Is a system tray required on Windows, or is the CLI enough there?
+4. Which distribution channels do you want: Homebrew, prebuilt binaries, or the App Store?
 5. Should the Python CLI stay as the reference implementation?

@@ -41,3 +41,11 @@ Scan github and whatnot for existing reverse engeered options, or anything else 
 Use github.com/bevry-vibes/skills to scaffold this project.
 
 Ping me back once you have cracked the API interface, and we'll propose a plan for which language to code the official client in (swift, rust, zig are good contenders). You can do your exploration in whatever.
+
+## follow-up prompt
+
+linux and windows would be good, as I use both, they could share the same base - we have cross-platform menubar/systray stuff in bevry-vibes/aural-keyboard - would a zig base help that then swift uses on macos, or does swift now work suitably enough on all platforms?
+
+two other functioanlity that the official app provides that we don't yet, but should be added for completeness:
+- rename
+- Power On Behaviour: [Restore Last Used Setting] or [Restore Defaults]
