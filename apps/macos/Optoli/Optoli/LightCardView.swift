@@ -14,38 +14,15 @@ struct LightCardView: View {
 	init(model: AppModel, device: LightDevice) {
 		self.model = model
 		self.device = device
-		_brightness = State(initialValue: Double(device.state?.brightness ?? 0))
-		_warmth = State(initialValue: Double(device.state?.warmth ?? 0))
+		_brightness = State(
+			initialValue: Double(max(2, min(100, device.state?.brightness ?? 50)))
+		)
+		_warmth = State(initialValue: Double(device.state?.warmth ?? 50))
 	}
 
 	var body: some View {
 		VStack(alignment: .leading, spacing: 10) {
-			HStack(alignment: .top) {
-				Circle()
-					.fill(statusColor)
-					.frame(width: 8, height: 8)
-					.padding(.top, 6)
-				VStack(alignment: .leading, spacing: 2) {
-					Text(device.name)
-						.font(.headline)
-					Text(device.info?.product ?? device.host)
-						.font(.caption)
-						.foregroundStyle(.secondary)
-				}
-				Spacer()
-				wifiIcon
-				Toggle(
-					"",
-					isOn: Binding(
-						get: { device.state?.on ?? false },
-						set: { value in
-							Task { await model.setOn(device, on: value) }
-						}
-					)
-				)
-				.toggleStyle(.switch)
-				.labelsHidden()
-			}
+			header
 
 			if let error = device.error {
 				Text(error)
@@ -54,89 +31,9 @@ struct LightCardView: View {
 					.lineLimit(2)
 			}
 
-			VStack(alignment: .leading, spacing: 6) {
-				HStack {
-					Image(systemName: "sun.max")
-						.foregroundStyle(.secondary)
-						.frame(width: 16)
-					GradientSlider(
-						value: $brightness,
-						range: 0...100,
-						gradient: Gradient(colors: [
-							Color(white: 0.08),
-							temperatureColor(warmth),
-						]),
-						thumbColor: brightnessColor(brightness),
-						onEditingChanged: { editing in
-							isEditingBrightness = editing
-							if !editing {
-								Task {
-									await model.setBrightness(
-										device,
-										value: UInt8(brightness.rounded())
-									)
-								}
-							}
-						}
-					)
-					.disabled(device.state == nil)
-					.accessibilityLabel("Brightness")
-					Text("\(Int(brightness.rounded()))%")
-						.font(.caption.monospacedDigit())
-						.frame(width: 38, alignment: .trailing)
-				}
-				HStack {
-					Image(systemName: "thermometer.medium")
-						.foregroundStyle(.secondary)
-						.frame(width: 16)
-					GradientSlider(
-						value: $warmth,
-						range: 0...100,
-						gradient: Gradient(colors: [
-							temperatureColor(0),
-							temperatureColor(50),
-							temperatureColor(100),
-						]),
-						thumbColor: temperatureColor(warmth),
-						onEditingChanged: { editing in
-							isEditingWarmth = editing
-							if !editing {
-								Task {
-									await model.setWarmth(
-										device,
-										value: UInt8(warmth.rounded())
-									)
-								}
-							}
-						}
-					)
-					.disabled(device.state == nil)
-					.accessibilityLabel("Warmth")
-					Text("\(Int(warmth.rounded()))%")
-						.font(.caption.monospacedDigit())
-						.frame(width: 38, alignment: .trailing)
-				}
-			}
-
-			HStack {
-				if let state = device.state {
-					Text("\(state.temperatureMired) mired · \(state.kelvin) K")
-						.font(.caption2.monospacedDigit())
-						.foregroundStyle(.secondary)
-				}
-				Spacer()
-				Menu {
-					Button("Rename…") { showRename = true }
-					Button("Power On Behaviour…") { showPowerOn = true }
-					Button("Identify") {
-						Task { await model.identify(device) }
-					}
-				} label: {
-					Image(systemName: "ellipsis.circle")
-				}
-				.menuStyle(.borderlessButton)
-				.help("Light settings")
-			}
+			brightnessRow
+			warmthRow
+			footer
 		}
 		.padding(14)
 		.frame(maxWidth: .infinity, alignment: .leading)
@@ -145,13 +42,32 @@ struct LightCardView: View {
 			RoundedRectangle(cornerRadius: 18)
 				.stroke(.quaternary, lineWidth: 1)
 		)
+		.overlay(linkBorder(.card, cornerRadius: 18))
+		.contentShape(Rectangle())
+		.onTapGesture {
+			if model.commandDown {
+				model.toggleLinkSelection(.card, device: device)
+			}
+		}
+		.onHover { hovering in
+			model.setHover(
+				hovering
+					? LinkTarget(device: device.name, kind: .card)
+					: nil
+			)
+		}
+		.dropDestination(for: String.self) { items, _ in
+			guard let name = items.first else { return false }
+			model.moveDevice(name, before: device.name)
+			return true
+		}
 		.onAppear {
-			brightness = Double(device.state?.brightness ?? 0)
-			warmth = Double(device.state?.warmth ?? 0)
+			brightness = Double(max(2, min(100, device.state?.brightness ?? 50)))
+			warmth = Double(device.state?.warmth ?? 50)
 		}
 		.onChange(of: device.state?.brightness) { _, value in
 			if !isEditingBrightness, let value {
-				brightness = Double(value)
+				brightness = Double(max(2, min(100, value)))
 			}
 		}
 		.onChange(of: device.state?.warmth) { _, value in
@@ -167,18 +83,237 @@ struct LightCardView: View {
 		}
 	}
 
+	private var header: some View {
+		HStack(alignment: .top, spacing: 8) {
+			Image(systemName: "line.3.horizontal")
+				.font(.caption2)
+				.foregroundStyle(.tertiary)
+				.padding(.top, 5)
+				.onDrag {
+					NSItemProvider(object: device.name as NSString)
+				}
+				.help("Drag to reorder")
+
+			Circle()
+				.fill(statusColor)
+				.frame(width: 8, height: 8)
+				.padding(.top, 6)
+
+			VStack(alignment: .leading, spacing: 2) {
+				Text(device.name)
+					.font(.headline)
+				Text(device.info?.product ?? device.host)
+					.font(.caption)
+					.foregroundStyle(.secondary)
+			}
+
+			Spacer()
+
+			HStack(alignment: .center, spacing: 8) {
+				wifiIcon
+					.frame(width: 18, height: 18, alignment: .center)
+				Toggle(
+					"",
+					isOn: Binding(
+						get: { isEffectivelyOn },
+						set: { value in
+							Task { await model.setOn(device, on: value) }
+						}
+					)
+				)
+				.toggleStyle(.switch)
+				.controlSize(.small)
+				.labelsHidden()
+				.overlay {
+					if model.commandDown {
+						linkTapOverlay(.power)
+					}
+				}
+				.overlay(linkBorder(.power, cornerRadius: 10).padding(-3))
+				.onHover { hovering in
+					model.setHover(
+						hovering
+							? LinkTarget(device: device.name, kind: .power)
+							: nil
+					)
+				}
+			}
+		}
+	}
+
+	private var brightnessRow: some View {
+		HStack {
+			Image(systemName: "sun.max")
+				.foregroundStyle(.secondary)
+				.frame(width: 16)
+			GradientSlider(
+				value: $brightness,
+				range: 2...100,
+				gradient: Gradient(colors: [
+					dimTemperatureColor(warmth),
+					temperatureColor(warmth),
+				]),
+				thumbColor: brightnessColor(brightness),
+				onEditingChanged: { editing in
+					isEditingBrightness = editing
+					if !editing {
+						Task {
+							await model.setBrightness(
+								device,
+								value: UInt8(brightness.rounded())
+							)
+						}
+					}
+				}
+			)
+			.disabled(device.state == nil)
+			.accessibilityLabel("Brightness")
+			Text(brightnessLabel)
+				.font(.caption.monospacedDigit())
+				.frame(width: 38, alignment: .trailing)
+		}
+		.padding(.vertical, 2)
+		.padding(.horizontal, 4)
+		.overlay {
+			if model.commandDown {
+				linkTapOverlay(.brightness)
+			}
+		}
+		.overlay(linkBorder(.brightness, cornerRadius: 8))
+		.onHover { hovering in
+			model.setHover(
+				hovering
+					? LinkTarget(device: device.name, kind: .brightness)
+					: nil
+			)
+		}
+	}
+
+	private var warmthRow: some View {
+		HStack {
+			Image(systemName: "thermometer.medium")
+				.foregroundStyle(.secondary)
+				.frame(width: 16)
+			GradientSlider(
+				value: $warmth,
+				range: 0...100,
+				gradient: Gradient(colors: [
+					temperatureColor(0),
+					temperatureColor(50),
+					temperatureColor(100),
+				]),
+				thumbColor: temperatureColor(warmth),
+				onEditingChanged: { editing in
+					isEditingWarmth = editing
+					if !editing {
+						Task {
+							await model.setWarmth(
+								device,
+								value: UInt8(warmth.rounded())
+							)
+						}
+					}
+				}
+			)
+			.disabled(device.state == nil)
+			.accessibilityLabel("Warmth")
+			Text("\(Int(warmth.rounded()))%")
+				.font(.caption.monospacedDigit())
+				.frame(width: 38, alignment: .trailing)
+		}
+		.padding(.vertical, 2)
+		.padding(.horizontal, 4)
+		.overlay {
+			if model.commandDown {
+				linkTapOverlay(.warmth)
+			}
+		}
+		.overlay(linkBorder(.warmth, cornerRadius: 8))
+		.onHover { hovering in
+			model.setHover(
+				hovering
+					? LinkTarget(device: device.name, kind: .warmth)
+					: nil
+			)
+		}
+	}
+
+	private var footer: some View {
+		HStack {
+			if let state = device.state {
+				Text("\(state.temperatureMired) mired · \(state.kelvin) K")
+					.font(.caption2.monospacedDigit())
+					.foregroundStyle(.secondary)
+			}
+			Spacer()
+			Menu {
+				Button("Rename…") { showRename = true }
+				Button("Power On Behaviour…") { showPowerOn = true }
+				Button("Identify") {
+					Task { await model.identify(device) }
+				}
+			} label: {
+				Image(systemName: "ellipsis.circle")
+			}
+			.menuStyle(.borderlessButton)
+			.help("Light settings")
+		}
+	}
+
+	private func linkTapOverlay(_ kind: LinkKind) -> some View {
+		Color.clear
+			.contentShape(Rectangle())
+			.highPriorityGesture(
+				TapGesture().onEnded {
+					model.toggleLinkSelection(kind, device: device)
+				}
+			)
+			.onHover { hovering in
+				model.setHover(
+					hovering
+						? LinkTarget(device: device.name, kind: kind)
+						: nil
+				)
+			}
+	}
+
+	private func linkBorder(_ kind: LinkKind, cornerRadius: CGFloat) -> some View {
+		RoundedRectangle(cornerRadius: cornerRadius)
+			.stroke(
+				model.linkColor(
+					for: LinkTarget(device: device.name, kind: kind)
+				) ?? .clear,
+				lineWidth: 2
+			)
+			.allowsHitTesting(false)
+	}
+
 	private var statusColor: Color {
 		if device.error != nil {
 			return .red
 		}
-		return device.state?.on == true ? .green : .secondary
+		return isEffectivelyOn ? .green : .secondary
+	}
+
+	private var isEffectivelyOn: Bool {
+		device.state?.on == true && (device.state?.brightness ?? 0) >= 2
+	}
+
+	private var brightnessLabel: String {
+		if isEditingBrightness {
+			return "\(Int(brightness.rounded()))%"
+		}
+		if device.state?.on == true && (device.state?.brightness ?? 0) < 2 {
+			return "off"
+		}
+		return "\(Int(brightness.rounded()))%"
 	}
 
 	private var wifiIcon: some View {
 		Image(systemName: device.info?.wifi == nil ? "wifi.slash" : "wifi")
+			.font(.system(size: 14, weight: .regular))
 			.foregroundStyle(wifiColor)
 			.help(wifiHelp)
-			.padding(.top, 2)
 	}
 
 	private var wifiColor: Color {
@@ -222,14 +357,25 @@ struct LightCardView: View {
 		return Color(red: color.r, green: color.g, blue: color.b)
 	}
 
-	private func brightnessColor(_ brightness: Double) -> Color {
-		let t = min(1, max(0, brightness / 100))
-		let target = temperatureComponents(warmth)
-		let base = 0.06
+	private func dimTemperatureColor(_ warmth: Double) -> Color {
+		let color = temperatureComponents(warmth)
+		let factor = 0.22
 		return Color(
-			red: base + (target.r - base) * t,
-			green: base + (target.g - base) * t,
-			blue: base + (target.b - base) * t
+			red: color.r * factor,
+			green: color.g * factor,
+			blue: color.b * factor
+		)
+	}
+
+	private func brightnessColor(_ brightness: Double) -> Color {
+		let t = min(1, max(0, (brightness - 2) / 98))
+		let target = temperatureComponents(warmth)
+		let dim = 0.22
+		let factor = dim + (1 - dim) * t
+		return Color(
+			red: target.r * factor,
+			green: target.g * factor,
+			blue: target.b * factor
 		)
 	}
 }
