@@ -41,7 +41,7 @@ struct ElopliLightQuery: EntityQuery {
 	}
 
 	func defaultResult() async -> ElopliLightEntity? {
-		try? Self.allEntities().first
+		try? Self.allEntities().dropFirst().first
 	}
 
 	private static func allEntities() throws -> [ElopliLightEntity] {
@@ -62,9 +62,33 @@ struct ElopliLightQuery: EntityQuery {
 	}
 }
 
+struct DeviceResult {
+	let name: String
+	let message: String?
+	let error: String?
+}
+
+struct AnimationDeviceResult {
+	let name: String
+	let outcome: FfiPulseOutcome?
+	let error: String?
+}
+
 enum IntentSupport {
 	static func config() throws -> FfiConfig {
 		try FfiConfig.load(path: nil)
+	}
+
+	static func describe(_ error: Error) -> String {
+		if let ffi = error as? FfiError {
+			switch ffi {
+			case let .Message(message):
+				return message
+			case let .Detailed(_, message):
+				return message
+			}
+		}
+		return error.localizedDescription
 	}
 
 	static func devices(
@@ -72,11 +96,18 @@ enum IntentSupport {
 	) throws -> [FfiDevice] {
 		let config = try config()
 		let all = try config.devices()
-		if entities.isEmpty || entities.contains(where: { $0.id == ElopliLightEntity.allID }) {
+		if entities.contains(where: { $0.id == ElopliLightEntity.allID }) {
 			return all
 		}
+		guard !entities.isEmpty else {
+			throw IntentError.message("Choose at least one light, or choose All Lights.")
+		}
 		let names = Set(entities.map(\.name))
-		return all.filter { names.contains($0.name) }
+		let matched = all.filter { names.contains($0.name) }
+		guard !matched.isEmpty else {
+			throw IntentError.message("None of the selected lights are in the registry.")
+		}
+		return matched
 	}
 
 	static func client(for device: FfiDevice) throws -> FfiClient {
@@ -95,6 +126,176 @@ enum IntentSupport {
 
 	static func names(_ devices: [FfiDevice]) -> String {
 		devices.map(\.name).joined(separator: ", ")
+	}
+
+	static func duration(
+		_ text: String,
+		minimum: UInt32,
+		maximum: UInt32
+	) throws -> UInt32 {
+		let value: UInt32
+		do {
+			value = try parseDuration(input: text)
+		} catch {
+			throw IntentError.message(describe(error))
+		}
+		guard value >= minimum, value <= maximum else {
+			throw IntentError.message(
+				"Duration must be between \(minimum) and \(maximum) ms."
+			)
+		}
+		return value
+	}
+
+	static func runEach(
+		_ devices: [FfiDevice],
+		_ body: @escaping @Sendable (FfiDevice, FfiClient) throws -> String
+	) async -> [DeviceResult] {
+		await withTaskGroup(of: DeviceResult.self) { group in
+			for device in devices {
+				group.addTask {
+					do {
+						let client = try client(for: device)
+						let message = try await run { try body(device, client) }
+						return DeviceResult(name: device.name, message: message, error: nil)
+					} catch {
+						return DeviceResult(
+							name: device.name,
+							message: nil,
+							error: describe(error)
+						)
+					}
+				}
+			}
+			var results: [DeviceResult] = []
+			for await result in group {
+				results.append(result)
+			}
+			return devices.compactMap { device in
+				results.first { $0.name == device.name }
+			}
+		}
+	}
+
+	static func runPulses(
+		_ devices: [FfiDevice],
+		count: UInt32,
+		durationMs: UInt32,
+		value: UInt8,
+		low: UInt8
+	) async -> [AnimationDeviceResult] {
+		await withTaskGroup(of: AnimationDeviceResult.self) { group in
+			for device in devices {
+				group.addTask {
+					do {
+						let client = try client(for: device)
+						let outcome = try await run {
+							try client.pulse(
+								count: count,
+								durationMs: durationMs,
+								value: value,
+								low: low
+							)
+						}
+						return AnimationDeviceResult(
+							name: device.name,
+							outcome: outcome,
+							error: nil
+						)
+					} catch {
+						return AnimationDeviceResult(
+							name: device.name,
+							outcome: nil,
+							error: describe(error)
+						)
+					}
+				}
+			}
+			var results: [AnimationDeviceResult] = []
+			for await result in group {
+				results.append(result)
+			}
+			return devices.compactMap { device in
+				results.first { $0.name == device.name }
+			}
+		}
+	}
+
+	static func runSweeps(
+		_ devices: [FfiDevice],
+		count: UInt32,
+		durationMs: UInt32,
+		brightness: UInt8?
+	) async -> [AnimationDeviceResult] {
+		await withTaskGroup(of: AnimationDeviceResult.self) { group in
+			for device in devices {
+				group.addTask {
+					do {
+						let client = try client(for: device)
+						let outcome = try await run {
+							try client.sweep(
+								count: count,
+								durationMs: durationMs,
+								brightness: brightness
+							)
+						}
+						return AnimationDeviceResult(
+							name: device.name,
+							outcome: outcome,
+							error: nil
+						)
+					} catch {
+						return AnimationDeviceResult(
+							name: device.name,
+							outcome: nil,
+							error: describe(error)
+						)
+					}
+				}
+			}
+			var results: [AnimationDeviceResult] = []
+			for await result in group {
+				results.append(result)
+			}
+			return devices.compactMap { device in
+				results.first { $0.name == device.name }
+			}
+		}
+	}
+
+	static func summary(_ action: String, _ results: [DeviceResult]) -> String {
+		let succeeded = results.filter { $0.error == nil }.map(\.name)
+		let failed = results.filter { $0.error != nil }
+		if failed.isEmpty {
+			return succeeded.isEmpty ? "\(action) no lights." : "\(action) \(succeeded.joined(separator: ", "))"
+		}
+		let failures = failed.map { "\($0.name): \($0.error ?? "unknown error")" }
+		if succeeded.isEmpty {
+			return "Failed to \(action.lowercased()): \(failures.joined(separator: "; "))"
+		}
+		return "\(action) \(succeeded.joined(separator: ", ")). Failed: \(failures.joined(separator: "; "))"
+	}
+
+	static func animationSummary(
+		_ action: String,
+		_ results: [AnimationDeviceResult]
+	) -> String {
+		let completed = results.filter { $0.outcome?.completed == true }.map(\.name)
+		let stopped = results.filter { $0.outcome?.completed == false }.map(\.name)
+		let failed = results.filter { $0.error != nil }
+		var parts: [String] = []
+		if !completed.isEmpty {
+			parts.append("\(action) \(completed.joined(separator: ", "))")
+		}
+		if !stopped.isEmpty {
+			parts.append("stopped on \(stopped.joined(separator: ", "))")
+		}
+		if !failed.isEmpty {
+			parts.append(
+				"failed on \(failed.map { "\($0.name): \($0.error ?? "unknown error")" }.joined(separator: "; "))"
+			)
+		}
+		return parts.isEmpty ? "No lights were changed." : parts.joined(separator: ". ")
 	}
 }
 
@@ -118,11 +319,11 @@ struct TurnOnIntent: AppIntent {
 
 	func perform() async throws -> some IntentResult & ProvidesDialog {
 		let devices = try IntentSupport.devices(from: lights)
-		for device in devices {
-			let client = try IntentSupport.client(for: device)
-			_ = try await IntentSupport.run { try client.setOn(on: true) }
+		let results = await IntentSupport.runEach(devices) { _, client in
+			_ = try client.setOn(on: true)
+			return "on"
 		}
-		return .result(dialog: "Turned on \(IntentSupport.names(devices))")
+		return .result(dialog: IntentDialog(stringLiteral: IntentSupport.summary("Turned on", results)))
 	}
 }
 
@@ -146,11 +347,11 @@ struct TurnOffIntent: AppIntent {
 
 	func perform() async throws -> some IntentResult & ProvidesDialog {
 		let devices = try IntentSupport.devices(from: lights)
-		for device in devices {
-			let client = try IntentSupport.client(for: device)
-			_ = try await IntentSupport.run { try client.setOn(on: false) }
+		let results = await IntentSupport.runEach(devices) { _, client in
+			_ = try client.setOn(on: false)
+			return "off"
 		}
-		return .result(dialog: "Turned off \(IntentSupport.names(devices))")
+		return .result(dialog: IntentDialog(stringLiteral: IntentSupport.summary("Turned off", results)))
 	}
 }
 
@@ -174,11 +375,11 @@ struct ToggleIntent: AppIntent {
 
 	func perform() async throws -> some IntentResult & ProvidesDialog {
 		let devices = try IntentSupport.devices(from: lights)
-		for device in devices {
-			let client = try IntentSupport.client(for: device)
-			_ = try await IntentSupport.run { try client.toggle() }
+		let results = await IntentSupport.runEach(devices) { _, client in
+			_ = try client.toggle()
+			return "toggled"
 		}
-		return .result(dialog: "Toggled \(IntentSupport.names(devices))")
+		return .result(dialog: IntentDialog(stringLiteral: IntentSupport.summary("Toggled", results)))
 	}
 }
 
@@ -210,11 +411,11 @@ struct SetBrightnessIntent: AppIntent {
 	func perform() async throws -> some IntentResult & ProvidesDialog {
 		let value = UInt8(max(2, min(100, brightness)))
 		let devices = try IntentSupport.devices(from: lights)
-		for device in devices {
-			let client = try IntentSupport.client(for: device)
-			_ = try await IntentSupport.run { try client.setBrightness(value: value) }
+		let results = await IntentSupport.runEach(devices) { _, client in
+			_ = try client.setBrightness(value: value)
+			return "brightness"
 		}
-		return .result(dialog: "Set \(IntentSupport.names(devices)) to \(value)%")
+		return .result(dialog: IntentDialog(stringLiteral: "\(IntentSupport.summary("Set brightness", results)) to \(value)%"))
 	}
 }
 
@@ -246,13 +447,11 @@ struct SetWarmthIntent: AppIntent {
 	func perform() async throws -> some IntentResult & ProvidesDialog {
 		let value = UInt8(max(0, min(100, warmth)))
 		let devices = try IntentSupport.devices(from: lights)
-		for device in devices {
-			let client = try IntentSupport.client(for: device)
-			_ = try await IntentSupport.run { try client.setWarmth(value: value) }
+		let results = await IntentSupport.runEach(devices) { _, client in
+			_ = try client.setWarmth(value: value)
+			return "warmth"
 		}
-		return .result(
-			dialog: "Set warmth on \(IntentSupport.names(devices)) to \(value)%"
-		)
+		return .result(dialog: IntentDialog(stringLiteral: "\(IntentSupport.summary("Set warmth", results)) to \(value)%"))
 	}
 }
 
@@ -276,15 +475,12 @@ struct GetStateIntent: AppIntent {
 
 	func perform() async throws -> some IntentResult & ProvidesDialog {
 		let devices = try IntentSupport.devices(from: lights)
-		var lines: [String] = []
-		for device in devices {
-			let client = try IntentSupport.client(for: device)
-			let state = try await IntentSupport.run { try client.state() }
-			lines.append(
-				"\(device.name): \(state.on ? "on" : "off"), "
-					+ "\(state.brightness)% brightness, \(state.warmth)% warmth"
-			)
+		let results = await IntentSupport.runEach(devices) { device, client in
+			let state = try client.state()
+			return "\(device.name): \(state.on ? "on" : "off"), "
+				+ "\(state.brightness)% brightness, \(state.warmth)% warmth"
 		}
+		let lines = results.map { $0.message ?? $0.error ?? "unknown error" }
 		return .result(dialog: IntentDialog(stringLiteral: lines.joined(separator: "\n")))
 	}
 }
@@ -308,14 +504,21 @@ struct RenameIntent: AppIntent {
 	var newName: String
 
 	func perform() async throws -> some IntentResult & ProvidesDialog {
+		guard light.id != ElopliLightEntity.allID else {
+			throw IntentError.message("Choose one light to rename.")
+		}
 		let devices = try IntentSupport.devices(from: [light])
 		guard devices.count == 1 else {
 			throw IntentError.message("Choose one light to rename.")
 		}
 		let device = devices[0]
-		let client = try IntentSupport.client(for: device)
-		let result = try await IntentSupport.run { try client.rename(name: newName) }
-		return .result(dialog: "Renamed \(device.name) to \(result)")
+		do {
+			let client = try IntentSupport.client(for: device)
+			let result = try await IntentSupport.run { try client.rename(name: newName) }
+			return .result(dialog: "Renamed \(device.name) to \(result)")
+		} catch {
+			throw IntentError.message(IntentSupport.describe(error))
+		}
 	}
 }
 
@@ -366,15 +569,14 @@ struct PulseIntent: AppIntent {
 
 	@Parameter(
 		title: "Duration",
-		description: "Target duration of the pulse animation in milliseconds. The minimum hold can extend it.",
-		default: 3000
+		description: "Duration, for example 1.0s, 500ms, or 10m. Bare numbers are seconds.",
+		default: "1.0s"
 	)
-	var durationMs: Int
-
+	var duration: String
 
 	@Parameter(
 		title: "Peak Value",
-		description: "Peak brightness percentage.",
+		description: "Peak brightness from 2 to 100.",
 		default: 100
 	)
 	var value: Int
@@ -389,31 +591,25 @@ struct PulseIntent: AppIntent {
 	func perform() async throws -> some IntentResult & ProvidesDialog {
 		let devices = try IntentSupport.devices(from: lights)
 		let count = UInt32(max(1, min(20, count)))
-		let durationMs = UInt32(max(50, min(10_000, durationMs)))
-		let value = UInt8(max(0, min(100, value)))
+		let minimum = (count * 2 + 1) * 100
+		let durationMs = try IntentSupport.duration(
+			duration,
+			minimum: minimum,
+			maximum: 3_600_000
+		)
+		let value = UInt8(max(2, min(100, value)))
 		let low = UInt8(min(Int(value), max(0, min(100, low))))
-		var stopped = 0
-		for device in devices {
-			let client = try IntentSupport.client(for: device)
-			let outcome = try await IntentSupport.run {
-				try client.pulse(
-					count: count,
-					durationMs: durationMs,
-					value: value,
-					low: low
-				)
-			}
-			if !outcome.completed {
-				stopped += 1
-			}
-		}
-		if stopped > 0 {
-			return .result(
-				dialog: "Stopped pulsing \(IntentSupport.names(devices)) because the light changed or another action took over."
-			)
-		}
+		let results = await IntentSupport.runPulses(
+			devices,
+			count: count,
+			durationMs: durationMs,
+			value: value,
+			low: low
+		)
 		return .result(
-			dialog: "Pulsed \(IntentSupport.names(devices))"
+			dialog: IntentDialog(
+				stringLiteral: IntentSupport.animationSummary("Pulsed", results)
+			)
 		)
 	}
 }
@@ -445,15 +641,14 @@ struct SweepLightIntent: AppIntent {
 
 	@Parameter(
 		title: "Duration",
-		description: "Duration of the entire sweep animation in milliseconds.",
-		default: 3000
+		description: "Duration, for example 1.0s, 500ms, or 10m. Bare numbers are seconds.",
+		default: "1.0s"
 	)
-	var durationMs: Int
-
+	var duration: String
 
 	@Parameter(
 		title: "Brightness",
-		description: "Brightness to hold during the sweep. 0 keeps the current brightness.",
+		description: "Brightness to hold during the sweep. 0 or 1 keeps the current brightness.",
 		default: 0
 	)
 	var brightness: Int
@@ -461,29 +656,23 @@ struct SweepLightIntent: AppIntent {
 	func perform() async throws -> some IntentResult & ProvidesDialog {
 		let devices = try IntentSupport.devices(from: lights)
 		let count = UInt32(max(1, min(20, count)))
-		let durationMs = UInt32(max(100, min(60_000, durationMs)))
+		let minimum = (count * 2 + 1) * 100
+		let durationMs = try IntentSupport.duration(
+			duration,
+			minimum: minimum,
+			maximum: 3_600_000
+		)
 		let brightness = max(0, min(100, brightness))
-		var stopped = 0
-		for device in devices {
-			let client = try IntentSupport.client(for: device)
-			let outcome = try await IntentSupport.run {
-				try client.sweep(
-					count: count,
-					durationMs: durationMs,
-					brightness: brightness > 0 ? UInt8(brightness) : nil
-				)
-			}
-			if !outcome.completed {
-				stopped += 1
-			}
-		}
-		if stopped > 0 {
-			return .result(
-				dialog: "Stopped sweeping \(IntentSupport.names(devices)) because the light changed or another action took over."
-			)
-		}
+		let results = await IntentSupport.runSweeps(
+			devices,
+			count: count,
+			durationMs: durationMs,
+			brightness: brightness >= 2 ? UInt8(brightness) : nil
+		)
 		return .result(
-			dialog: "Swept \(IntentSupport.names(devices))"
+			dialog: IntentDialog(
+				stringLiteral: IntentSupport.animationSummary("Swept", results)
+			)
 		)
 	}
 }
@@ -509,21 +698,36 @@ struct SetPowerOnIntent: AppIntent {
 	@Parameter(title: "Behaviour", default: .restoreLast)
 	var behavior: PowerOnBehaviorChoice
 
+	@Parameter(
+		title: "Default Brightness",
+		description: "Used with Restore Defaults, from 2 to 100.",
+		default: 20
+	)
+	var brightness: Int
+
+	@Parameter(
+		title: "Default Warmth",
+		description: "Used with Restore Defaults, from 0 to 100.",
+		default: 35
+	)
+	var warmth: Int
+
 	func perform() async throws -> some IntentResult & ProvidesDialog {
 		let devices = try IntentSupport.devices(from: lights)
-		for device in devices {
-			let client = try IntentSupport.client(for: device)
-			_ = try await IntentSupport.run {
-				try client.setPowerOn(
-					behavior: behavior.value,
-					brightness: nil,
-					temperatureMired: nil
-				)
-			}
+		let defaults = behavior == .restoreDefaults
+		let brightnessValue = defaults ? UInt8(max(2, min(100, brightness))) : nil
+		let temperature = defaults
+			? UInt16(max(0, min(100, warmth))) * 201 / 100 + 143
+			: nil
+		let results = await IntentSupport.runEach(devices) { _, client in
+			_ = try client.setPowerOn(
+				behavior: behavior.value,
+				brightness: brightnessValue,
+				temperatureMired: temperature
+			)
+			return "power-on"
 		}
-		return .result(
-			dialog: "Set power-on behaviour on \(IntentSupport.names(devices))"
-		)
+		return .result(dialog: IntentDialog(stringLiteral: IntentSupport.summary("Set power-on behaviour", results)))
 	}
 }
 
@@ -586,6 +790,14 @@ struct ElopliShortcuts: AppShortcutsProvider {
 			],
 			shortTitle: "Pulse",
 			systemImageName: "waveform.path.ecg"
+		)
+		AppShortcut(
+			intent: SweepLightIntent(),
+			phrases: [
+				"Sweep \(.applicationName)"
+			],
+			shortTitle: "Sweep",
+			systemImageName: "arrow.left.and.right"
 		)
 	}
 }

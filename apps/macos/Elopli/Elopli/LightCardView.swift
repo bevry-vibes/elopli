@@ -125,7 +125,7 @@ struct LightCardView: View {
 			VStack(alignment: .leading, spacing: 2) {
 				Text(device.name)
 					.font(.headline)
-				Text(device.info?.product ?? device.host)
+				Text(subtitle)
 					.font(.caption)
 					.foregroundStyle(.secondary)
 			}
@@ -338,10 +338,29 @@ struct LightCardView: View {
 		return "\(Int(brightness.rounded()))%"
 	}
 
+	private var subtitle: String {
+		let display = device.info?.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+		let product = device.info?.product.trimmingCharacters(in: .whitespacesAndNewlines)
+		if let display, !display.isEmpty, display.caseInsensitiveCompare(device.name) != .orderedSame {
+			if let product, !product.isEmpty {
+				return "\(display) · \(product)"
+			}
+			return display
+		}
+		if let product, !product.isEmpty {
+			return product
+		}
+		return device.host
+	}
+
 	private var wifiIcon: some View {
-		Image(systemName: device.info?.wifi == nil ? "wifi.slash" : "wifi")
-			.font(.system(size: 14, weight: .regular))
-			.foregroundStyle(wifiColor)
+		Image(
+			systemName: device.error != nil || device.info?.wifi == nil
+				? "wifi.slash"
+				: "wifi"
+		)
+		.font(.system(size: 14, weight: .regular))
+		.foregroundStyle(wifiColor)
 			.onHover { hovering in
 				wifiHoverTask?.cancel()
 				if hovering {
@@ -368,6 +387,9 @@ struct LightCardView: View {
 	}
 
 	private var wifiColor: Color {
+		if device.error != nil {
+			return .red
+		}
 		guard let wifi = device.info?.wifi else {
 			return .secondary
 		}
@@ -379,12 +401,14 @@ struct LightCardView: View {
 	}
 
 	private var wifiHelp: String {
-		guard let wifi = device.info?.wifi else {
-			let reason = device.error ?? "Offline"
-			return "\(reason) · IP \(device.host). Power cycle the light, wait for it to reconnect, then refresh."
+		if let error = device.error {
+			return "\(error) · Address \(device.host). Power cycle the light, wait for it to reconnect, then refresh."
 		}
-		let frequency = wifi.frequencyMhz == 2400 ? "2.4 GHz" : "5 GHz"
-		return "\(wifi.ssid) · \(frequency) · \(wifi.rssi) dBm (\(wifi.quality)) · IP \(device.host)"
+		guard let wifi = device.info?.wifi else {
+			return "Loading network details · Address \(device.host)"
+		}
+		let frequency = wifi.frequencyMhz < 3000 ? "2.4 GHz" : "5 GHz"
+		return "\(wifi.ssid) · \(frequency) · \(wifi.rssi) dBm (\(wifi.quality)) · Address \(device.host)"
 	}
 
 	private func temperatureComponents(

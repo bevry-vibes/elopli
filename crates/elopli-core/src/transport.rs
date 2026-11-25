@@ -1,6 +1,6 @@
 use std::io::{Read, Write};
 use std::process::{Command, Stdio};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,23 +59,42 @@ pub trait HttpTransport: Send + Sync {
 		timeout: Duration,
 	) -> Result<HttpResponse, TransportError>;
 
+	/// A request that must reuse the persistent native connection. Animations
+	/// use this path so a transport fallback can never open a short-lived
+	/// connection in the middle of a keyframe sequence.
+	fn request_persistent(
+		&self,
+		method: &str,
+		url: &str,
+		body: Option<&[u8]>,
+		timeout: Duration,
+	) -> Result<HttpResponse, TransportError> {
+		if self.persistent() {
+			self.request(method, url, body, timeout)
+		} else {
+			Err(TransportError::connection(
+				"a persistent native HTTP connection is required for animations",
+			))
+		}
+	}
+
 	/// Whether the transport reuses one connection for every request.
-	/// Animations must not open a new connection per keyframe: the light's
-	/// HTTP server drops repeated short-lived connections.
 	fn persistent(&self) -> bool {
 		false
 	}
 }
 
-pub struct NativeTransport {
-	agent: ureq::Agent,
+static NATIVE_AGENT: OnceLock<ureq::Agent> = OnceLock::new();
+
+fn native_agent() -> &'static ureq::Agent {
+	NATIVE_AGENT.get_or_init(|| ureq::AgentBuilder::new().build())
 }
+
+pub struct NativeTransport;
 
 impl NativeTransport {
 	pub fn new() -> Self {
-		Self {
-			agent: ureq::AgentBuilder::new().build(),
-		}
+		Self
 	}
 }
 
@@ -97,7 +116,7 @@ impl HttpTransport for NativeTransport {
 		body: Option<&[u8]>,
 		timeout: Duration,
 	) -> Result<HttpResponse, TransportError> {
-		let mut request = self.agent.request(method, url).timeout(timeout);
+		let mut request = native_agent().request(method, url).timeout(timeout);
 		if body.is_some() {
 			request = request.set("Content-Type", "application/json");
 		}
@@ -125,17 +144,21 @@ impl HttpTransport for NativeTransport {
 	}
 }
 
+static CURL_AVAILABLE: OnceLock<bool> = OnceLock::new();
+
 pub struct CurlTransport;
 
 impl CurlTransport {
 	pub fn available() -> bool {
-		Command::new("curl")
-			.arg("--version")
-			.stdout(Stdio::null())
-			.stderr(Stdio::null())
-			.status()
-			.map(|status| status.success())
-			.unwrap_or(false)
+		*CURL_AVAILABLE.get_or_init(|| {
+			Command::new("curl")
+				.arg("--version")
+				.stdout(Stdio::null())
+				.stderr(Stdio::null())
+				.status()
+				.map(|status| status.success())
+				.unwrap_or(false)
+		})
 	}
 }
 
@@ -147,12 +170,16 @@ impl HttpTransport for CurlTransport {
 		body: Option<&[u8]>,
 		timeout: Duration,
 	) -> Result<HttpResponse, TransportError> {
+		let max_time = timeout.as_secs_f64().max(0.001);
 		let mut command = Command::new("curl");
 		command.args([
+			"-q",
+			"--noproxy",
+			"*",
 			"--silent",
 			"--show-error",
 			"--max-time",
-			&format!("{:.3}", timeout.as_secs_f64()),
+			&format!("{max_time:.3}"),
 			"--request",
 			method,
 			"--header",
@@ -163,6 +190,12 @@ impl HttpTransport for CurlTransport {
 		]);
 		if body.is_some() {
 			command.args(["--data-binary", "@-"]);
+		}
+		#[cfg(windows)]
+		{
+			use std::os::windows::process::CommandExt;
+			const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+			command.creation_flags(CREATE_NO_WINDOW);
 		}
 		command
 			.stdin(Stdio::piped())
@@ -176,9 +209,11 @@ impl HttpTransport for CurlTransport {
 				.stdin
 				.take()
 				.ok_or_else(|| TransportError::connection("curl stdin is unavailable"))?;
-			stdin
-				.write_all(body)
-				.map_err(|error| TransportError::connection(error.to_string()))?;
+			if let Err(error) = stdin.write_all(body) {
+				let _ = child.kill();
+				let _ = child.wait();
+				return Err(TransportError::connection(error.to_string()));
+			}
 		}
 		let output = child
 			.wait_with_output()
@@ -248,7 +283,7 @@ impl HttpTransport for AutoTransport {
 		!self.fallback_active()
 	}
 
-	fn request(
+	fn request_persistent(
 		&self,
 		method: &str,
 		url: &str,
@@ -256,9 +291,24 @@ impl HttpTransport for AutoTransport {
 		timeout: Duration,
 	) -> Result<HttpResponse, TransportError> {
 		if self.fallback_active() {
-			if let Some(curl) = &self.curl {
-				return curl.request(method, url, body, timeout);
-			}
+			return Err(TransportError::connection(
+				"a persistent native HTTP connection is required for animations",
+			));
+		}
+		self.native.request(method, url, body, timeout)
+	}
+
+	fn request(
+		&self,
+		method: &str,
+		url: &str,
+		body: Option<&[u8]>,
+		timeout: Duration,
+	) -> Result<HttpResponse, TransportError> {
+		if self.fallback_active()
+			&& let Some(curl) = &self.curl
+		{
+			return curl.request(method, url, body, timeout);
 		}
 		match self.native.request(method, url, body, timeout) {
 			Ok(response) => Ok(response),
@@ -274,10 +324,20 @@ impl HttpTransport for AutoTransport {
 	}
 }
 
-pub fn build_transport(mode: TransportMode) -> Box<dyn HttpTransport + Send + Sync> {
+static AUTO_TRANSPORT: OnceLock<Arc<AutoTransport>> = OnceLock::new();
+static NATIVE_TRANSPORT: OnceLock<Arc<NativeTransport>> = OnceLock::new();
+static CURL_TRANSPORT: OnceLock<Arc<CurlTransport>> = OnceLock::new();
+
+pub fn build_transport(mode: TransportMode) -> Arc<dyn HttpTransport + Send + Sync> {
 	match mode {
-		TransportMode::Auto => Box::new(AutoTransport::new()),
-		TransportMode::Native => Box::new(NativeTransport::new()),
-		TransportMode::Curl => Box::new(CurlTransport),
+		TransportMode::Auto => AUTO_TRANSPORT
+			.get_or_init(|| Arc::new(AutoTransport::new()))
+			.clone(),
+		TransportMode::Native => NATIVE_TRANSPORT
+			.get_or_init(|| Arc::new(NativeTransport::new()))
+			.clone(),
+		TransportMode::Curl => CURL_TRANSPORT
+			.get_or_init(|| Arc::new(CurlTransport))
+			.clone(),
 	}
 }

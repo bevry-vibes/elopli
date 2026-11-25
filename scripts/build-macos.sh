@@ -2,19 +2,21 @@
 # Build the Rust core, generate the UniFFI Swift bindings, and build the macOS app.
 set -eu
 
-ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+ROOT=$(cd -- "$(dirname -- "$0")/.." && pwd)
 APP_DIR="$ROOT/apps/macos/Elopli"
 TARGET_DIR=${CARGO_TARGET_DIR:-"$ROOT/target"}
 CONFIG=${1:-debug}
+export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
+export CODE_SIGNING_ALLOWED="${CODE_SIGNING_ALLOWED:-YES}"
 
 cd "$ROOT"
 
 if [ "$CONFIG" = "release" ]; then
-	cargo build --release -p elopli-ffi
+	cargo build --locked --release -p elopli-ffi
 	LIB="$TARGET_DIR/release/libelopli_ffi.a"
 	DYLIB="$TARGET_DIR/release/libelopli_ffi.dylib"
 else
-	cargo build -p elopli-ffi
+	cargo build --locked -p elopli-ffi
 	LIB="$TARGET_DIR/debug/libelopli_ffi.a"
 	DYLIB="$TARGET_DIR/debug/libelopli_ffi.dylib"
 fi
@@ -41,6 +43,7 @@ if [ -n "${DEVELOPMENT_TEAM:-}" ]; then
 		CODE_SIGN_STYLE=Automatic \
 		CODE_SIGN_IDENTITY="Apple Development" \
 		DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
+		CODE_SIGNING_ALLOWED="$CODE_SIGNING_ALLOWED" \
 		-allowProvisioningUpdates \
 		build
 elif [ -n "${SIGN_IDENTITY:-}" ]; then
@@ -52,6 +55,7 @@ elif [ -n "${SIGN_IDENTITY:-}" ]; then
 		CODE_SIGN_STYLE=Manual \
 		CODE_SIGN_IDENTITY="$SIGN_IDENTITY" \
 		DEVELOPMENT_TEAM="" \
+		CODE_SIGNING_ALLOWED="$CODE_SIGNING_ALLOWED" \
 		build
 else
 	xcodebuild \
@@ -62,6 +66,7 @@ else
 		CODE_SIGN_STYLE=Manual \
 		CODE_SIGN_IDENTITY="-" \
 		DEVELOPMENT_TEAM="" \
+		CODE_SIGNING_ALLOWED="$CODE_SIGNING_ALLOWED" \
 		build
 fi
 

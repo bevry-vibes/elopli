@@ -56,12 +56,13 @@ final class AppModel: ObservableObject {
 	private static let linkAccent = Color(red: 1.0, green: 0.0, blue: 1.0)
 	private static let sliderWriteInterval = Duration.milliseconds(100)
 	private struct SliderKey: Hashable {
-		let device: String
+		let names: [String]
 		let kind: LinkKind
 	}
 	private var pendingSliderValues: [SliderKey: UInt8] = [:]
 	private var sliderWriteTasks: [SliderKey: Task<Void, Never>] = [:]
 	private var liveClearTasks: [SliderKey: Task<Void, Never>] = [:]
+	private var deviceRevisions: [String: UInt64] = [:]
 
 	init() {
 		do {
@@ -88,6 +89,26 @@ final class AppModel: ObservableObject {
 		}
 	}
 
+	func reconcileCommandState() {
+		let down = NSEvent.modifierFlags.contains(.command)
+		if commandDown != down {
+			commandDown = down
+			if !down {
+				commitLinkSelection()
+			}
+		}
+	}
+
+	var hasRunningAnimations: Bool {
+		!pulsingDevices.isEmpty
+	}
+
+	func cancelAllAnimations() {
+		for device in devices where pulsingDevices.contains(device.name) {
+			cancelPulse(device)
+		}
+	}
+
 	deinit {
 		if let eventMonitor {
 			NSEvent.removeMonitor(eventMonitor)
@@ -98,6 +119,8 @@ final class AppModel: ObservableObject {
 		if let error = error as? FfiError {
 			switch error {
 			case let .Message(message):
+				return message
+			case let .Detailed(_, message):
 				return message
 			}
 		}
@@ -117,13 +140,21 @@ final class AppModel: ObservableObject {
 	func reloadDevices() {
 		guard let config else { return }
 		do {
-			let existing = Dictionary(uniqueKeysWithValues: devices.map { ($0.name, $0) })
+			var existing: [String: LightDevice] = [:]
+			for device in devices {
+				existing[device.name] = device
+			}
 			devices = try config.devices().map { device in
-				if let current = existing[device.name] {
+				if let current = existing[device.name],
+					current.host == device.host,
+					current.port == device.port
+				{
 					return current
 				}
 				return LightDevice(name: device.name, host: device.host, port: device.port)
 			}
+			let names = Set(devices.map(\.name))
+			deviceRevisions = deviceRevisions.filter { names.contains($0.key) }
 			pruneLinkGroups()
 		} catch {
 			errorMessage = Self.describe(error)
@@ -134,7 +165,23 @@ final class AppModel: ObservableObject {
 		guard !isRefreshing else { return }
 		isRefreshing = true
 		defer { isRefreshing = false }
-		let current = devices.filter { !pulsingDevices.contains($0.name) }
+		errorMessage = nil
+		if let config {
+			do {
+				try config.reload()
+				reloadDevices()
+			} catch {
+				errorMessage = Self.describe(error)
+			}
+		}
+		let current = devices.filter {
+			!pulsingDevices.contains($0.name) && !hasPendingSlider($0.name)
+		}
+		let revisions = Dictionary(
+			uniqueKeysWithValues: current.map {
+				($0.name, deviceRevisions[$0.name, default: 0])
+			}
+		)
 
 		await withTaskGroup(
 			of: (String, FfiSnapshot?, FfiPowerOnSettings?, String?).self
@@ -156,6 +203,7 @@ final class AppModel: ObservableObject {
 			}
 			for await (name, snapshot, powerOn, error) in group {
 				guard !pulsingDevices.contains(name) else { continue }
+				guard deviceRevisions[name, default: 0] == revisions[name] else { continue }
 				guard let index = devices.firstIndex(where: { $0.name == name }) else { continue }
 				if let snapshot {
 					devices[index].state = snapshot.state
@@ -168,6 +216,17 @@ final class AppModel: ObservableObject {
 					devices[index].powerOn = powerOn
 				}
 			}
+		}
+	}
+
+	private func hasPendingSlider(_ name: String) -> Bool {
+		pendingSliderValues.keys.contains { $0.names.contains(name) }
+			|| sliderWriteTasks.keys.contains { $0.names.contains(name) }
+	}
+
+	private func touch(_ names: [String]) {
+		for name in names {
+			deviceRevisions[name, default: 0] &+= 1
 		}
 	}
 
@@ -186,6 +245,7 @@ final class AppModel: ObservableObject {
 		action: @escaping @Sendable (LightDevice, FfiClient) throws -> FfiLightState
 	) async {
 		guard !targets.isEmpty else { return }
+		touch(targets.map(\.name))
 		await withTaskGroup(of: (String, FfiLightState?, String?).self) { group in
 			for device in targets {
 				group.addTask {
@@ -210,6 +270,7 @@ final class AppModel: ObservableObject {
 				}
 			}
 		}
+		touch(targets.map(\.name))
 	}
 
 	func setOn(_ device: LightDevice, on: Bool) async {
@@ -239,19 +300,27 @@ final class AppModel: ObservableObject {
 	}
 
 	func setBrightness(_ device: LightDevice, value: UInt8) async {
-		let value = max(2, min(100, value))
-		let names = linkedDeviceNames(for: device.name, kind: .brightness)
-		await update(names: names) { try $0.setBrightness(value: value) }
+		let names = linkedDeviceNames(for: device.name, kind: .brightness).sorted()
+		await writeBrightness(names: names, value: value)
 	}
 
 	func setWarmth(_ device: LightDevice, value: UInt8) async {
+		let names = linkedDeviceNames(for: device.name, kind: .warmth).sorted()
+		await writeWarmth(names: names, value: value)
+	}
+
+	private func writeBrightness(names: [String], value: UInt8) async {
+		let value = max(2, min(100, value))
+		await update(names: names) { try $0.setBrightness(value: value) }
+	}
+
+	private func writeWarmth(names: [String], value: UInt8) async {
 		let value = max(0, min(100, value))
-		let names = linkedDeviceNames(for: device.name, kind: .warmth)
 		await update(names: names) { try $0.setWarmth(value: value) }
 	}
 
 	/// Queue a brightness write while a slider is moving. Only the newest
-	/// value is kept, and at most one write is in flight per device and kind.
+	/// value is kept, and at most one write is in flight per linked group.
 	func queueBrightness(_ device: LightDevice, value: UInt8) {
 		enqueueSlider(device: device, kind: .brightness, value: value)
 	}
@@ -262,8 +331,8 @@ final class AppModel: ObservableObject {
 	}
 
 	private func enqueueSlider(device: LightDevice, kind: LinkKind, value: UInt8) {
-		let key = SliderKey(device: device.name, kind: kind)
-		let names = linkedDeviceNames(for: device.name, kind: kind)
+		let names = linkedDeviceNames(for: device.name, kind: kind).sorted()
+		let key = SliderKey(names: names, kind: kind)
 		for name in names {
 			setLive(kind: kind, name: name, value: value)
 		}
@@ -273,18 +342,18 @@ final class AppModel: ObservableObject {
 		guard sliderWriteTasks[key] == nil else { return }
 		sliderWriteTasks[key] = Task { [weak self] in
 			guard let self else { return }
-			await self.drainSlider(key: key, device: device)
+			await self.drainSlider(key: key)
 		}
 	}
 
-	private func drainSlider(key: SliderKey, device: LightDevice) async {
+	private func drainSlider(key: SliderKey) async {
 		while let value = pendingSliderValues.removeValue(forKey: key) {
 			let started = ContinuousClock.now
 			switch key.kind {
 			case .brightness:
-				await setBrightness(device, value: value)
+				await writeBrightness(names: key.names, value: value)
 			case .warmth:
-				await setWarmth(device, value: value)
+				await writeWarmth(names: key.names, value: value)
 			case .power, .card:
 				break
 			}
@@ -295,12 +364,14 @@ final class AppModel: ObservableObject {
 		}
 		sliderWriteTasks[key] = nil
 		// A value can arrive while the last write is finishing.
-		if let value = pendingSliderValues[key], sliderWriteTasks[key] == nil {
+		if let value = pendingSliderValues[key],
+			sliderWriteTasks[key] == nil,
+			let device = devices.first(where: { key.names.contains($0.name) })
+		{
 			enqueueSlider(device: device, kind: key.kind, value: value)
 			return
 		}
-		let names = linkedDeviceNames(for: device.name, kind: key.kind)
-		scheduleLiveClear(key: key, names: names)
+		scheduleLiveClear(key: key, names: key.names)
 	}
 
 	private func setLive(kind: LinkKind, name: String, value: UInt8?) {
@@ -333,8 +404,10 @@ final class AppModel: ObservableObject {
 
 	func rename(_ device: LightDevice, to name: String) async {
 		do {
+			touch([device.name])
 			let client = try Self.client(for: device)
 			_ = try await Task.detached { try client.rename(name: name) }.value
+			touch([device.name])
 			await refresh()
 		} catch {
 			setError(device, error)
@@ -344,10 +417,11 @@ final class AppModel: ObservableObject {
 	func setPowerOn(
 		_ device: LightDevice,
 		behavior: UInt8,
-		brightness: UInt8,
-		temperatureMired: UInt16
+		brightness: UInt8?,
+		temperatureMired: UInt16?
 	) async {
 		do {
+			touch([device.name])
 			let client = try Self.client(for: device)
 			let powerOn = try await Task.detached {
 				try client.setPowerOn(
@@ -360,6 +434,7 @@ final class AppModel: ObservableObject {
 				devices[index].powerOn = powerOn
 				devices[index].error = nil
 			}
+			touch([device.name])
 		} catch {
 			setError(device, error)
 		}
@@ -367,8 +442,10 @@ final class AppModel: ObservableObject {
 
 	func identify(_ device: LightDevice) async {
 		do {
+			touch([device.name])
 			let client = try Self.client(for: device)
 			try await Task.detached { try client.identify() }.value
+			touch([device.name])
 		} catch {
 			setError(device, error)
 		}
@@ -485,7 +562,7 @@ final class AppModel: ObservableObject {
 							try client.sweep(
 								count: UInt32(count),
 								durationMs: UInt32(durationMs),
-								brightness: brightness > 0 ? UInt8(brightness) : nil
+								brightness: brightness >= 2 ? UInt8(brightness) : nil
 							)
 						}.value
 						return (index, outcome, nil)
@@ -523,6 +600,7 @@ final class AppModel: ObservableObject {
 	func scan() async {
 		guard !isScanning else { return }
 		isScanning = true
+		errorMessage = nil
 		defer { isScanning = false }
 		do {
 			discovered = try await Task.detached {
@@ -533,19 +611,55 @@ final class AppModel: ObservableObject {
 		}
 	}
 
+	nonisolated static func matches(
+		_ known: LightDevice,
+		_ discovered: FfiDiscoveredDevice
+	) -> Bool {
+		guard known.port == discovered.port else { return false }
+		if known.name.caseInsensitiveCompare(discovered.name) == .orderedSame {
+			return true
+		}
+		if known.host.caseInsensitiveCompare(discovered.host) == .orderedSame {
+			return true
+		}
+		if let address = discovered.address,
+			known.host.caseInsensitiveCompare(address) == .orderedSame
+		{
+			return true
+		}
+		return false
+	}
+
 	func addDiscovered(_ device: FfiDiscoveredDevice) {
 		guard let config else { return }
-		let host = device.address ?? device.host
-		guard !devices.contains(where: {
-			$0.name == device.name || $0.host == host
-		}) else {
+		guard let address = device.address else {
+			errorMessage = "\(device.name) did not advertise an IPv4 address. Use a network with IPv4 mDNS."
+			return
+		}
+		guard !devices.contains(where: { Self.matches($0, device) }) else {
 			return
 		}
 		do {
-			_ = try config.add(name: device.name, host: host, port: device.port)
+			_ = try config.add(name: device.name, host: address, port: device.port)
 			try config.save()
 			reloadDevices()
-			discovered.removeAll { $0.name == device.name }
+			Task { await refresh() }
+		} catch {
+			errorMessage = Self.describe(error)
+		}
+	}
+
+	func updateDiscovered(_ device: FfiDiscoveredDevice) {
+		guard let config else { return }
+		guard let address = device.address else {
+			errorMessage = "\(device.name) did not advertise an IPv4 address."
+			return
+		}
+		do {
+			_ = try config.add(name: device.name, host: address, port: device.port)
+			try config.save()
+			reloadDevices()
+			Task { await refresh() }
 		} catch {
 			errorMessage = Self.describe(error)
 		}
@@ -558,8 +672,14 @@ final class AppModel: ObservableObject {
 			} else {
 				try SMAppService.mainApp.unregister()
 			}
-			launchAtLogin = enabled
+			let status = SMAppService.mainApp.status
+			launchAtLogin = status == .enabled
+			if enabled, status == .requiresApproval {
+				errorMessage = "Approve Elopli in System Settings > General > Login Items."
+				SMAppService.openSystemSettingsLoginItems()
+			}
 		} catch {
+			launchAtLogin = SMAppService.mainApp.status == .enabled
 			errorMessage = Self.describe(error)
 		}
 	}
@@ -589,7 +709,11 @@ final class AppModel: ObservableObject {
 	}
 
 	func toggleLinkSelection(_ kind: LinkKind, device: LightDevice) {
-		guard commandDown else { return }
+		let active = commandDown || NSEvent.modifierFlags.contains(.command)
+		guard active else { return }
+		if !commandDown {
+			commandDown = true
+		}
 		let target = LinkTarget(device: device.name, kind: kind)
 		if kind != .card && isInCardGroup(device.name) {
 			unlinkCardGroup(containing: device.name)
@@ -611,16 +735,19 @@ final class AppModel: ObservableObject {
 
 	func isGrouped(_ device: LightDevice) -> Bool {
 		linkGroups.contains {
-			$0.deviceNames.count >= 2 && $0.deviceNames.contains(device.name)
+			$0.kind == .card
+				&& $0.deviceNames.count >= 2
+				&& $0.deviceNames.contains(device.name)
 		}
 	}
 
 	func groupedDevices(for device: LightDevice) -> [LightDevice] {
-		var names: Set<String> = [device.name]
-		for group in linkGroups where group.deviceNames.contains(device.name) {
-			names.formUnion(group.deviceNames)
+		guard let card = linkGroups.first(where: {
+			$0.kind == .card && $0.deviceNames.contains(device.name)
+		}) else {
+			return [device]
 		}
-		return devices.filter { names.contains($0.name) }
+		return devices.filter { card.deviceNames.contains($0.name) }
 	}
 
 	private func unlinkCardGroup(containing deviceName: String) {
@@ -737,18 +864,10 @@ final class AppModel: ObservableObject {
 		saveLinkGroups()
 	}
 
-	/// Apply the first card's visible values to the other members when a
-	/// group is created. The first member follows the UI order, not the
-	/// alphabetical group order.
+	/// Apply the first card's visible values to every other member when a
+	/// group is created. The first member follows the UI order.
 	private func syncAfterLink(kind: LinkKind, names: [String]) {
-		guard let anchor = names.first else { return }
-		if let card = linkGroups.first(where: {
-			$0.kind == .card && $0.deviceNames.contains(anchor)
-		}) {
-			syncGroup(kind: .card, names: card.deviceNames)
-		} else {
-			syncGroup(kind: kind, names: names)
-		}
+		syncGroup(kind: kind, names: names)
 	}
 
 	private func syncGroup(kind: LinkKind, names: [String]) {
@@ -756,7 +875,6 @@ final class AppModel: ObservableObject {
 		guard members.count >= 2, let source = members.first?.state else { return }
 		let on = source.on
 		let brightness = max(2, source.brightness)
-		let warmth = source.warmth
 		let temperature = source.temperatureMired
 		let targets = Array(members.dropFirst())
 		Task {
@@ -767,10 +885,10 @@ final class AppModel: ObservableObject {
 				case .brightness:
 					return try client.setBrightness(value: brightness)
 				case .warmth:
-					return try client.setWarmth(value: warmth)
+					return try client.setTemperature(value: temperature)
 				case .card:
 					_ = try client.setBrightness(value: brightness)
-					_ = try client.setWarmth(value: warmth)
+					_ = try client.setTemperature(value: temperature)
 					return try client.setOnWithBrightness(
 						on: on,
 						brightness: on ? brightness : nil
@@ -811,12 +929,10 @@ final class AppModel: ObservableObject {
 		}
 		let ids = Set(groups.map(\.id))
 		linkGroups.removeAll { ids.contains($0.id) }
-		let hasCard = linkGroups.contains {
-			$0.kind == .card && Set($0.deviceNames) == target
+		linkGroups.removeAll {
+			$0.kind == .card && $0.deviceNames.contains(where: names.contains)
 		}
-		if !hasCard {
-			linkGroups.append(LinkGroup(kind: .card, deviceNames: names.sorted()))
-		}
+		linkGroups.append(LinkGroup(kind: .card, deviceNames: names.sorted()))
 	}
 
 	private func unlink(name: String, kind: LinkKind) {
@@ -863,6 +979,19 @@ final class AppModel: ObservableObject {
 	}
 
 	private func normalizeLinkGroups() {
+		let cards = linkGroups.filter { $0.kind == .card }
+		let redundantCards = Set(
+			cards.compactMap { group -> UUID? in
+				let set = Set(group.deviceNames)
+				let covered = cards.contains {
+					$0.id != group.id
+						&& Set($0.deviceNames).isSuperset(of: set)
+				}
+				return covered ? group.id : nil
+			}
+		)
+		linkGroups.removeAll { redundantCards.contains($0.id) }
+
 		let cardSets = linkGroups
 			.filter { $0.kind == .card }
 			.map { Set($0.deviceNames) }

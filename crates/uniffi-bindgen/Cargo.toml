@@ -2,6 +2,7 @@
 name = "uniffi-bindgen"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
@@ -13,3 +14,6 @@ path = "src/main.rs"
 
 [dependencies]
 uniffi = { workspace = true, features = ["cli"] }
+
+[lints]
+workspace = true

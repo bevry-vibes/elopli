@@ -1,5 +1,5 @@
 [workspace]
-resolver = "2"
+resolver = "3"
 members = [
 	"crates/elopli-core",
 	"crates/elopli",
@@ -10,6 +10,7 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.100"
 license = "RPL-1.5"
 authors = ["Benjamin Lupton <b@lupton.cc>"]
 repository = "https://github.com/bevry-vibes/elopli"
@@ -22,7 +23,6 @@ ureq = { version = "2.12", default-features = false }
 clap = { version = "4", features = ["derive"] }
 rayon = "1"
 dirs = "7"
-fs2 = "0.4"
 mdns-sd = { version = "0.22", default-features = false }
 uniffi = "0.32"
 
@@ -30,3 +30,6 @@ uniffi = "0.32"
 lto = true
 codegen-units = 1
 strip = true
+
+[workspace.lints.rust]
+unsafe_code = "forbid"

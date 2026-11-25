@@ -29,6 +29,7 @@ struct ContentView: View {
 		.padding(18)
 		.frame(width: 460)
 		.onAppear {
+			model.reconcileCommandState()
 			Task { await model.refresh() }
 		}
 		.onReceive(timer) { _ in
@@ -39,7 +40,15 @@ struct ContentView: View {
 				for: NSApplication.didBecomeActiveNotification
 			)
 		) { _ in
+			model.reconcileCommandState()
 			Task { await model.refresh() }
+		}
+		.onReceive(
+			NotificationCenter.default.publisher(
+				for: NSApplication.didResignActiveNotification
+			)
+		) { _ in
+			model.reconcileCommandState()
 		}
 		.onDisappear {
 			model.resetLinkInteraction()
@@ -180,6 +189,7 @@ private struct DiscoveryRow: Identifiable {
 	let name: String
 	let detail: String
 	let state: State
+	let needsUpdate: Bool
 	let discovered: FfiDiscoveredDevice?
 }
 
@@ -200,6 +210,12 @@ struct DiscoverySheet: View {
 					Label("Scan Again", systemImage: "arrow.clockwise")
 				}
 				.disabled(model.isScanning)
+			}
+			if let error = model.errorMessage {
+				Text(error)
+					.font(.caption)
+					.foregroundStyle(.red)
+					.lineLimit(3)
 			}
 			if model.isScanning {
 				ProgressView("Scanning the local network…")
@@ -223,9 +239,17 @@ struct DiscoverySheet: View {
 						Spacer()
 						switch row.state {
 						case .added:
-							Button("Added") {}
+							if row.needsUpdate, let device = row.discovered {
+								Button("Update") {
+									model.updateDiscovered(device)
+								}
 								.buttonStyle(.bordered)
-								.disabled(true)
+								.help("Update this light's saved address")
+							} else {
+								Button("Added") {}
+									.buttonStyle(.bordered)
+									.disabled(true)
+							}
 						case .missing:
 							Text("Missing")
 								.font(.callout)
@@ -243,6 +267,12 @@ struct DiscoverySheet: View {
 								Button("Add") {
 									model.addDiscovered(device)
 								}
+								.disabled(device.address == nil)
+								.help(
+									device.address == nil
+										? "This light did not advertise an IPv4 address."
+										: "Add this light"
+								)
 							}
 						}
 					}
@@ -262,29 +292,34 @@ struct DiscoverySheet: View {
 
 	private var discoveryRows: [DiscoveryRow] {
 		var rows = model.devices.map { known -> DiscoveryRow in
-			let discovered = model.discovered.first { matches(known, $0) }
+			let discovered = model.discovered.first { AppModel.matches(known, $0) }
 			let detail: String
 			if let discovered {
 				detail = "\(discovered.product) · \(discovered.address ?? discovered.host)"
 			} else {
 				detail = "\(known.info?.product ?? known.host) · \(known.host) · not found"
 			}
+			let needsUpdate = discovered?.address.map {
+				known.host.caseInsensitiveCompare($0) != .orderedSame
+			} ?? false
 			return DiscoveryRow(
 				id: "known-\(known.name)",
 				name: known.name,
 				detail: detail,
 				state: discovered == nil ? .missing : .added,
+				needsUpdate: needsUpdate,
 				discovered: discovered
 			)
 		}
 		for device in model.discovered
-		where !model.devices.contains(where: { matches($0, device) }) {
+		where !model.devices.contains(where: { AppModel.matches($0, device) }) {
 			rows.append(
 				DiscoveryRow(
 					id: "new-\(device.name)",
 					name: device.name,
 					detail: "\(device.product) · \(device.address ?? device.host)",
 					state: .new,
+					needsUpdate: false,
 					discovered: device
 				)
 			)
@@ -292,8 +327,4 @@ struct DiscoverySheet: View {
 		return rows
 	}
 
-	private func matches(_ known: LightDevice, _ discovered: FfiDiscoveredDevice) -> Bool {
-		let host = discovered.address ?? discovered.host
-		return known.name == discovered.name || known.host == host
-	}
 }

@@ -6,12 +6,13 @@ struct PulseSheet: View {
 	@Environment(\.dismiss) private var dismiss
 
 	@State private var count = 3
-	@State private var durationSeconds = 1.0
+	@State private var durationText = "1.0s"
 	@State private var value = 100.0
 	@State private var low = 0.0
 	@State private var isPulsing = false
 	@State private var stopRequested = false
 	@State private var result: String?
+	@State private var errorText: String?
 
 	var body: some View {
 		VStack(alignment: .leading, spacing: 14) {
@@ -39,20 +40,14 @@ struct PulseSheet: View {
 			HStack {
 				Text("Duration")
 				Spacer()
-				TextField(
-					"",
-					value: $durationSeconds,
-					format: .number.precision(.fractionLength(0...2))
-				)
-				.textFieldStyle(.roundedBorder)
-				.frame(width: 76)
-				.multilineTextAlignment(.trailing)
-				Text("s")
-					.foregroundStyle(.secondary)
+				TextField("1.0s", text: $durationText)
+					.textFieldStyle(.roundedBorder)
+					.frame(width: 86)
+					.multilineTextAlignment(.trailing)
 			}
 			.disabled(isPulsing)
 
-			Text("The duration is split by distance: initial rise, each fade, and the final restore. The app sends its own keyframes so the duration stays exact.")
+			Text("Use seconds by default, or add a unit: 1.0s, 500ms, 1.5, 10m, 1h. The duration is split by distance across the initial rise, each fade, and the final restore.")
 				.font(.caption2)
 				.foregroundStyle(.secondary)
 
@@ -85,6 +80,13 @@ struct PulseSheet: View {
 			Text("The light uses more requests while it pulses. Refresh polling for \(devices.count == 1 ? "this light" : "these lights") pauses until the pulse ends.")
 				.font(.caption2)
 				.foregroundStyle(.secondary)
+
+			if let errorText {
+				Label(errorText, systemImage: "exclamationmark.triangle.fill")
+					.font(.caption)
+					.foregroundStyle(.red)
+					.fixedSize(horizontal: false, vertical: true)
+			}
 
 			if let result {
 				Text(result)
@@ -145,18 +147,34 @@ struct PulseSheet: View {
 
 	private func startPulse() {
 		guard !isPulsing, !devices.isEmpty else { return }
-		isPulsing = true
 		stopRequested = false
 		result = nil
+		errorText = nil
 		let count = min(20, max(1, count))
-		let durationMs = min(10_000, max(50, Int((durationSeconds * 1000).rounded())))
+		let durationMs: UInt32
+		do {
+			durationMs = try parseDuration(input: durationText)
+		} catch {
+			errorText = "Invalid duration. Use 1.0s, 500ms, 10m, or 1h."
+			return
+		}
+		let minimum = UInt32((count * 2 + 1) * 100)
+		guard durationMs >= minimum else {
+			errorText = "Duration must be at least \(minimum) ms for \(count) pulses at the 10 Hz frame limit."
+			return
+		}
+		guard durationMs <= 3_600_000 else {
+			errorText = "Pulse duration must be one hour or less."
+			return
+		}
 		let peak = min(100, max(2, Int(value.rounded())))
 		let lowValue = min(peak, max(0, Int(low.rounded())))
+		isPulsing = true
 		Task {
 			let outcomes = await model.pulseGroup(
 				devices,
 				count: count,
-				durationMs: durationMs,
+				durationMs: Int(durationMs),
 				value: peak,
 				low: lowValue
 			)
@@ -167,7 +185,7 @@ struct PulseSheet: View {
 			} else if stopRequested {
 				result = "Pulse stopped."
 			} else if outcomes.contains(where: { $0 == nil }) {
-				result = "Pulse failed for \(devices.count - completed) of \(devices.count) lights."
+				errorText = "Pulse failed for \(devices.count - completed) of \(devices.count) lights."
 			} else if devices.count == 1,
 				let outcome = outcomes.first ?? nil,
 				outcome.cancellation == "external-change"

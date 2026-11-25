@@ -5,19 +5,22 @@ use std::sync::{Arc, Mutex};
 use elopli_core::{
 	AccessoryInfo, Config, Device, DiscoveredDevice, ElopliClient, ElopliError, LightState,
 	PowerOnBehavior, PowerOnSettings, PulseConfig, PulseOutcome, Snapshot, SweepConfig,
-	TransportMode, Update, WifiInfo, config_path, discover as discover_core, kelvin_to_mired,
-	validate_warmth,
+	TransportMode, Update, WifiInfo, discover as discover_core, expand_tilde, kelvin_to_mired,
+	parse_duration as parse_duration_core, platform_config_path, validate_warmth,
 };
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum FfiError {
 	#[error("{message}")]
 	Message { message: String },
+	#[error("{kind}: {message}")]
+	Detailed { kind: String, message: String },
 }
 
 impl From<ElopliError> for FfiError {
 	fn from(error: ElopliError) -> Self {
-		Self::Message {
+		Self::Detailed {
+			kind: error.kind().to_string(),
 			message: error.to_string(),
 		}
 	}
@@ -134,7 +137,7 @@ impl From<PulseOutcome> for FfiPulseOutcome {
 		let cancellation = outcome
 			.cancellation()
 			.map(|reason| reason.label().to_string());
-		let state = outcome.state().clone().into();
+		let state = (*outcome.state()).into();
 		Self {
 			completed,
 			cancellation,
@@ -200,8 +203,11 @@ impl FfiClient {
 		retries: u32,
 		transport: String,
 	) -> Result<Arc<Self>, FfiError> {
-		if timeout_seconds <= 0.0 || !timeout_seconds.is_finite() {
-			return Err(message("timeout must be greater than zero"));
+		if timeout_seconds <= 0.0 || !timeout_seconds.is_finite() || timeout_seconds > 60.0 {
+			return Err(message("timeout must be between 0 and 60 seconds"));
+		}
+		if retries > 10 {
+			return Err(message("retries must be between 0 and 10"));
 		}
 		let mode = match transport.as_str() {
 			"auto" => TransportMode::Auto,
@@ -371,12 +377,15 @@ pub struct FfiConfig {
 impl FfiConfig {
 	#[uniffi::constructor]
 	pub fn load(path: Option<String>) -> Result<Arc<Self>, FfiError> {
-		let path = path
-			.map(std::path::PathBuf::from)
-			.unwrap_or_else(|| config_path(None));
+		let path = path.map(expand_tilde).unwrap_or_else(platform_config_path);
 		Ok(Arc::new(Self {
 			inner: Mutex::new(Config::load(path)?),
 		}))
+	}
+
+	pub fn reload(&self) -> Result<(), FfiError> {
+		self.lock()?.reload()?;
+		Ok(())
 	}
 
 	pub fn path(&self) -> Result<String, FfiError> {
@@ -398,7 +407,7 @@ impl FfiConfig {
 	}
 
 	pub fn add(&self, name: String, host: String, port: u16) -> Result<bool, FfiError> {
-		Ok(self.lock()?.add(Device { name, host, port }))
+		Ok(self.lock()?.add(Device { name, host, port })?)
 	}
 
 	pub fn reorder(&self, names: Vec<String>) -> Result<(), FfiError> {
@@ -421,18 +430,23 @@ impl FfiConfig {
 
 #[uniffi::export]
 pub fn discover(timeout_seconds: f64) -> Result<Vec<FfiDiscoveredDevice>, FfiError> {
-	if timeout_seconds <= 0.0 || !timeout_seconds.is_finite() {
-		return Err(message("timeout must be greater than zero"));
+	if timeout_seconds <= 0.0 || !timeout_seconds.is_finite() || timeout_seconds > 3600.0 {
+		return Err(message("timeout must be between 0 and 3600 seconds"));
 	}
-	Ok(
-		discover_core(std::time::Duration::from_secs_f64(timeout_seconds))?
-			.into_iter()
-			.map(FfiDiscoveredDevice::from)
-			.collect(),
-	)
+	let timeout = std::time::Duration::try_from_secs_f64(timeout_seconds)
+		.map_err(|_| message("timeout is out of range"))?;
+	Ok(discover_core(timeout)?
+		.into_iter()
+		.map(FfiDiscoveredDevice::from)
+		.collect())
+}
+
+#[uniffi::export]
+pub fn parse_duration(input: String) -> Result<u32, FfiError> {
+	Ok(parse_duration_core(&input)?)
 }
 
 #[uniffi::export]
 pub fn default_config_path() -> String {
-	config_path(None).display().to_string()
+	platform_config_path().display().to_string()
 }

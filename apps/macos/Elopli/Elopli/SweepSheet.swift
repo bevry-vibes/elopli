@@ -6,11 +6,12 @@ struct SweepSheet: View {
 	@Environment(\.dismiss) private var dismiss
 
 	@State private var count = 1
-	@State private var durationSeconds = 1.0
+	@State private var durationText = "1.0s"
 	@State private var brightness = 0.0
 	@State private var isSweeping = false
 	@State private var stopRequested = false
 	@State private var result: String?
+	@State private var errorText: String?
 
 	var body: some View {
 		VStack(alignment: .leading, spacing: 14) {
@@ -38,39 +39,40 @@ struct SweepSheet: View {
 			HStack {
 				Text("Duration")
 				Spacer()
-				TextField(
-					"",
-					value: $durationSeconds,
-					format: .number.precision(.fractionLength(0...2))
-				)
-				.textFieldStyle(.roundedBorder)
-				.frame(width: 76)
-				.multilineTextAlignment(.trailing)
-				Text("s")
-					.foregroundStyle(.secondary)
+				TextField("1.0s", text: $durationText)
+					.textFieldStyle(.roundedBorder)
+					.frame(width: 86)
+					.multilineTextAlignment(.trailing)
 			}
 			.disabled(isSweeping)
 
-			Text("Duration covers the entire sweep animation.")
+			Text("Use seconds by default, or add a unit: 1.0s, 500ms, 1.5, 10m, 1h. Duration covers the entire sweep.")
 				.font(.caption2)
 				.foregroundStyle(.secondary)
 
 			HStack {
 				Text("Brightness")
 				Slider(value: $brightness, in: 0...100)
-				Text(brightness < 1 ? "N/A" : "\(Int(brightness.rounded()))%")
+				Text(brightnessValue < 2 ? "N/A" : "\(brightnessValue)%")
 					.font(.caption.monospacedDigit())
 					.frame(width: 38, alignment: .trailing)
 			}
 			.disabled(isSweeping)
 
-			Text("N/A keeps the current brightness. Any other value holds that brightness for the whole sweep.")
+			Text("N/A keeps the current brightness. Values from 2% hold that brightness for the whole sweep.")
 				.font(.caption2)
 				.foregroundStyle(.secondary)
 
 			Text("Refresh polling for \(devices.count == 1 ? "this light" : "these lights") pauses until the sweep ends.")
 				.font(.caption2)
 				.foregroundStyle(.secondary)
+
+			if let errorText {
+				Label(errorText, systemImage: "exclamationmark.triangle.fill")
+					.font(.caption)
+					.foregroundStyle(.red)
+					.fixedSize(horizontal: false, vertical: true)
+			}
 
 			if let result {
 				Text(result)
@@ -121,20 +123,40 @@ struct SweepSheet: View {
 		}
 	}
 
+	private var brightnessValue: Int {
+		let value = min(100, max(0, Int(brightness.rounded())))
+		return value >= 2 ? value : 0
+	}
+
 	private func startSweep() {
 		guard !isSweeping, !devices.isEmpty else { return }
-		isSweeping = true
 		stopRequested = false
 		result = nil
+		errorText = nil
 		let count = min(20, max(1, count))
-		let durationMs = min(60_000, max(100, Int((durationSeconds * 1000).rounded())))
-		let brightness = min(100, max(0, Int(brightness.rounded())))
+		let durationMs: UInt32
+		do {
+			durationMs = try parseDuration(input: durationText)
+		} catch {
+			errorText = "Invalid duration. Use 1.0s, 500ms, 10m, or 1h."
+			return
+		}
+		let minimum = UInt32((count * 2 + 1) * 100)
+		guard durationMs >= minimum else {
+			errorText = "Duration must be at least \(minimum) ms for \(count) sweeps at the 10 Hz frame limit."
+			return
+		}
+		guard durationMs <= 3_600_000 else {
+			errorText = "Sweep duration must be one hour or less."
+			return
+		}
+		isSweeping = true
 		Task {
 			let outcomes = await model.sweepGroup(
 				devices,
 				count: count,
-				durationMs: durationMs,
-				brightness: brightness
+				durationMs: Int(durationMs),
+				brightness: brightnessValue
 			)
 			isSweeping = false
 			let completed = outcomes.filter { $0?.completed == true }.count
@@ -143,7 +165,7 @@ struct SweepSheet: View {
 			} else if stopRequested {
 				result = "Sweep stopped."
 			} else if outcomes.contains(where: { $0 == nil }) {
-				result = "Sweep failed for \(devices.count - completed) of \(devices.count) lights."
+				errorText = "Sweep failed for \(devices.count - completed) of \(devices.count) lights."
 			} else if devices.count == 1,
 				let outcome = outcomes.first ?? nil,
 				outcome.cancellation == "external-change"

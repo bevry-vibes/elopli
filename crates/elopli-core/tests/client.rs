@@ -1,5 +1,6 @@
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use elopli_core::{
 	ElopliClient, PowerOnBehavior, PulseCancellation, PulseConfig, SweepConfig, TransportMode,
@@ -21,6 +22,7 @@ struct FakeState {
 	power_on_temperature: u16,
 	last_update: Option<Value>,
 	updates: Vec<Value>,
+	update_times: Vec<Instant>,
 	last_settings: Option<Value>,
 }
 
@@ -91,6 +93,7 @@ fn start_server() -> (u16, Arc<Mutex<FakeState>>) {
 		power_on_temperature: 213,
 		last_update: None,
 		updates: Vec::new(),
+		update_times: Vec::new(),
 		last_settings: None,
 	}));
 	let shared = Arc::clone(&state);
@@ -107,6 +110,7 @@ fn start_server() -> (u16, Arc<Mutex<FakeState>>) {
 					let payload: Value = serde_json::from_str(&body).unwrap();
 					state.last_update = Some(payload.clone());
 					state.updates.push(payload.clone());
+					state.update_times.push(Instant::now());
 					if let Some(light) = payload
 						.get("lights")
 						.and_then(Value::as_array)
@@ -171,13 +175,32 @@ fn start_server() -> (u16, Arc<Mutex<FakeState>>) {
 	(port, state)
 }
 
+fn test_state_dir() -> PathBuf {
+	static DIRECTORY: OnceLock<PathBuf> = OnceLock::new();
+	DIRECTORY
+		.get_or_init(|| {
+			let directory = std::env::temp_dir().join(format!(
+				"elopli-tests-{}-{}",
+				std::process::id(),
+				std::time::SystemTime::now()
+					.duration_since(std::time::UNIX_EPOCH)
+					.map(|duration| duration.as_nanos())
+					.unwrap_or_default()
+			));
+			std::fs::create_dir_all(&directory).unwrap();
+			directory
+		})
+		.clone()
+}
+
 fn client(port: u16) -> ElopliClient {
-	ElopliClient::new(
+	ElopliClient::new_with_state_dir(
 		"127.0.0.1",
 		port,
 		Duration::from_secs(2),
 		0,
 		TransportMode::Native,
+		Some(test_state_dir()),
 	)
 }
 
@@ -214,6 +237,30 @@ fn toggles_power() {
 	assert_eq!(state.lock().unwrap().on, 0);
 	assert!(client.toggle().unwrap().on);
 	assert_eq!(state.lock().unwrap().on, 1);
+}
+
+#[test]
+fn on_and_toggle_floor_brightness_to_visible() {
+	let (port, state) = start_server();
+	let client = client(port);
+	{
+		let mut state = state.lock().unwrap();
+		state.on = 0;
+		state.brightness = 0;
+	}
+
+	let on = client.set_on(true).unwrap();
+	assert!(on.on);
+	assert_eq!(on.brightness, 2);
+
+	{
+		let mut state = state.lock().unwrap();
+		state.on = 1;
+		state.brightness = 0;
+	}
+	let on = client.toggle().unwrap();
+	assert!(on.on);
+	assert_eq!(on.brightness, 2);
 }
 
 #[test]
@@ -265,7 +312,7 @@ fn pulse_restores_the_original_state() {
 	let result = client
 		.pulse(PulseConfig {
 			count: 1,
-			duration_ms: 100,
+			duration_ms: 300,
 			value: 80,
 			low: 2,
 		})
@@ -289,7 +336,7 @@ fn actions_cancel_a_running_pulse_and_win() {
 	let handle = std::thread::spawn(move || {
 		pulse_client
 			.pulse(PulseConfig {
-				count: 20,
+				count: 3,
 				duration_ms: 1_000,
 				value: 100,
 				low: 2,
@@ -313,13 +360,62 @@ fn actions_cancel_a_running_pulse_and_win() {
 }
 
 #[test]
+fn frames_respect_the_ten_hertz_floor() {
+	let (port, state) = start_server();
+	let client = client(port);
+	client
+		.pulse(PulseConfig {
+			count: 3,
+			duration_ms: 700,
+			value: 100,
+			low: 2,
+		})
+		.unwrap();
+	let times = state.lock().unwrap().update_times.clone();
+	assert!(times.len() >= 7);
+	for pair in times.windows(2) {
+		let gap = pair[1].duration_since(pair[0]);
+		assert!(
+			gap >= Duration::from_millis(80),
+			"frames only {gap:?} apart"
+		);
+	}
+}
+
+#[test]
+fn cancel_pulse_restores_the_original_state() {
+	let (port, state) = start_server();
+	let pulse_client = Arc::new(client(port));
+	let original = pulse_client.state().unwrap();
+	let handle = std::thread::spawn(move || {
+		pulse_client
+			.pulse(PulseConfig {
+				count: 3,
+				duration_ms: 2_000,
+				value: 100,
+				low: 2,
+			})
+			.unwrap()
+	});
+
+	std::thread::sleep(Duration::from_millis(150));
+	client(port).cancel_pulse().unwrap();
+
+	let outcome = handle.join().unwrap();
+	assert!(!outcome.completed());
+	assert_eq!(outcome.cancellation(), Some(PulseCancellation::Superseded));
+	assert_eq!(outcome.state(), &original);
+	assert_eq!(state.lock().unwrap().brightness, original.brightness);
+}
+
+#[test]
 fn pulse_stops_and_preserves_an_external_change() {
 	let (port, state) = start_server();
 	let pulse_client = Arc::new(client(port));
 	let handle = std::thread::spawn(move || {
 		pulse_client
 			.pulse(PulseConfig {
-				count: 5,
+				count: 3,
 				duration_ms: 1_000,
 				value: 100,
 				low: 2,
@@ -358,7 +454,7 @@ fn pulse_runs_peak_to_minimum_once_per_count() {
 	let result = client
 		.pulse(PulseConfig {
 			count: 3,
-			duration_ms: 100,
+			duration_ms: 700,
 			value: 80,
 			low: 2,
 		})
@@ -384,7 +480,7 @@ fn sweep_covers_cool_and_warm_and_restores() {
 	let result = client
 		.sweep(SweepConfig {
 			count: 1,
-			duration_ms: 100,
+			duration_ms: 300,
 			brightness: None,
 		})
 		.unwrap();
@@ -406,6 +502,43 @@ fn sweep_covers_cool_and_warm_and_restores() {
 }
 
 #[test]
+fn off_light_sweep_ramps_brightness_before_temperature() {
+	let (port, state) = start_server();
+	let client = client(port);
+	client.set_on(false).unwrap();
+	let original = client.state().unwrap();
+
+	client
+		.sweep(SweepConfig {
+			count: 1,
+			duration_ms: 1_000,
+			brightness: None,
+		})
+		.unwrap();
+
+	let updates = state.lock().unwrap().updates.clone();
+	let first_brightness = updates
+		.iter()
+		.filter_map(|update| update["lights"][0]["brightness"].as_u64())
+		.next()
+		.unwrap();
+	assert!(first_brightness <= 2);
+	let first_temperature_change = updates.iter().position(|update| {
+		update["lights"][0]["temperature"]
+			.as_u64()
+			.is_some_and(|temperature| temperature != u64::from(original.temperature))
+	});
+	if let Some(index) = first_temperature_change {
+		assert!(updates[..index].iter().any(|update| {
+			update["lights"][0]["brightness"]
+				.as_u64()
+				.is_some_and(|brightness| brightness > 2)
+		}));
+	}
+	assert_eq!(client.state().unwrap(), original);
+}
+
+#[test]
 fn sweep_holds_brightness_and_restores_it() {
 	let (port, state) = start_server();
 	let client = client(port);
@@ -414,7 +547,7 @@ fn sweep_holds_brightness_and_restores_it() {
 	client
 		.sweep(SweepConfig {
 			count: 1,
-			duration_ms: 100,
+			duration_ms: 300,
 			brightness: Some(30),
 		})
 		.unwrap();
@@ -461,7 +594,7 @@ fn pulse_can_turn_the_light_off_at_the_low() {
 	let result = client
 		.pulse(PulseConfig {
 			count: 1,
-			duration_ms: 100,
+			duration_ms: 300,
 			value: 100,
 			low: 0,
 		})

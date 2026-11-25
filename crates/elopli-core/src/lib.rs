@@ -4,6 +4,7 @@ pub mod client;
 pub mod config;
 mod control;
 pub mod discovery;
+pub mod duration;
 pub mod error;
 pub mod model;
 pub mod pulse;
@@ -12,8 +13,9 @@ pub mod transport;
 pub mod validate;
 
 pub use client::ElopliClient;
-pub use config::{Config, config_path};
+pub use config::{Config, config_path, expand_tilde, platform_config_path};
 pub use discovery::discover;
+pub use duration::{DEFAULT_DURATION, parse_duration};
 pub use error::{ElopliError, Result};
 pub use model::{
 	AccessoryInfo, Device, DiscoveredDevice, LightState, PowerOnBehavior, PowerOnSettings,

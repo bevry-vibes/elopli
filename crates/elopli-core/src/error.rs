@@ -18,11 +18,36 @@ pub enum ElopliError {
 	/// The requested operation is not supported by the selected transport.
 	#[error("{0}")]
 	Unsupported(String),
+	/// Another action took control before this action could write.
+	#[error("another action superseded this request")]
+	Superseded,
+	/// The per-light control lock was not released in time.
+	#[error("timed out waiting for another action to finish")]
+	LockTimeout,
+	/// The registry changed on disk after it was loaded.
+	#[error("the device registry changed on disk; reload it and retry")]
+	ConfigConflict,
 	#[error("I/O error: {0}")]
 	Io(#[from] std::io::Error),
 }
 
 impl ElopliError {
+	pub fn kind(&self) -> &'static str {
+		match self {
+			Self::Connection(_) => "connection",
+			Self::Api { .. } => "api",
+			Self::InvalidResponse(_) => "invalid_response",
+			Self::InvalidValue(_) => "invalid_value",
+			Self::Config(_) => "config",
+			Self::Discovery(_) => "discovery",
+			Self::Unsupported(_) => "unsupported",
+			Self::Superseded => "superseded",
+			Self::LockTimeout => "lock_timeout",
+			Self::ConfigConflict => "config_conflict",
+			Self::Io(_) => "io",
+		}
+	}
+
 	pub fn api(status: u16, messages: &[String]) -> Self {
 		let message = messages
 			.iter()

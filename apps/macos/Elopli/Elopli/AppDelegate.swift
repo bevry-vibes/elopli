@@ -2,6 +2,25 @@ import AppKit
 import Foundation
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+	weak var model: AppModel?
+
+	func applicationShouldTerminate(
+		_ sender: NSApplication
+	) -> NSApplication.TerminateReply {
+		guard let model, model.hasRunningAnimations else {
+			return .terminateNow
+		}
+		Task { @MainActor in
+			model.cancelAllAnimations()
+			let deadline = Date().addingTimeInterval(5)
+			while model.hasRunningAnimations && Date() < deadline {
+				try? await Task.sleep(for: .milliseconds(100))
+			}
+			NSApplication.shared.reply(toApplicationShouldTerminate: true)
+		}
+		return .terminateLater
+	}
+
 	func applicationDidFinishLaunching(_ notification: Notification) {
 		guard CommandLine.arguments.contains("--smoke-test") else { return }
 		Task {

@@ -58,6 +58,9 @@ pub struct PulseConfig {
 /// At 1000 ms and above it applies the target instantly. Animations now send
 /// immediate keyframes, so this limit only documents the device behavior.
 pub const MAX_FADE_MS: u32 = 900;
+/// One client-side keyframe interval. Animations must never send faster than
+/// this, including across segment boundaries.
+pub const FRAME_INTERVAL_MS: u32 = 100;
 /// A short low hold, capped so long pulses do not hang at the low.
 pub const MAX_LOW_HOLD_MS: u32 = 100;
 /// A short floor for a segment whose start is already close to its target.
@@ -82,7 +85,7 @@ impl Default for PulseConfig {
 	fn default() -> Self {
 		Self {
 			count: 3,
-			duration_ms: 3_000,
+			duration_ms: 1_000,
 			value: 100,
 			low: 0,
 		}
@@ -96,20 +99,28 @@ impl PulseConfig {
 				"pulse count must be between 1 and 20".into(),
 			));
 		}
-		if !(50..=10_000).contains(&self.duration_ms) {
+		if !(50..=3_600_000).contains(&self.duration_ms) {
 			return Err(ElopliError::InvalidValue(
-				"pulse duration must be between 50 and 10000 ms".into(),
+				"pulse duration must be between 50 ms and 1 hour".into(),
 			));
 		}
-		if self.value > 100 {
+		if !(2..=100).contains(&self.value) {
 			return Err(ElopliError::InvalidValue(
-				"pulse value must be between 0 and 100".into(),
+				"pulse value must be between 2 and 100".into(),
 			));
 		}
 		if self.low > self.value {
 			return Err(ElopliError::InvalidValue(
 				"pulse low must not exceed the peak".into(),
 			));
+		}
+		let segments = self.count.saturating_mul(2).saturating_add(1);
+		let minimum = segments.saturating_mul(FRAME_INTERVAL_MS);
+		if self.duration_ms < minimum {
+			return Err(ElopliError::InvalidValue(format!(
+				"pulse duration must be at least {minimum} ms for {} pulses at the {FRAME_INTERVAL_MS} ms frame limit",
+				self.count
+			)));
 		}
 		Ok(())
 	}
@@ -119,7 +130,7 @@ impl PulseConfig {
 	/// An on light runs `original -> peak -> low -> ... -> original`.
 	/// An off light runs `off -> peak -> off` for one count, and
 	/// `off -> peak -> low -> peak -> off` for two counts.
-	pub fn plan(&self, original_on: bool, original_brightness: u8) -> Vec<PulseSegment> {
+	pub(crate) fn plan(&self, original_on: bool, original_brightness: u8) -> Vec<PulseSegment> {
 		let peak = self.value.clamp(2, 100);
 		let low = self.low.min(peak);
 		let start = if original_on { original_brightness } else { 0 };

@@ -5,19 +5,23 @@
 //! stops before the action writes. This works across the app, the CLI, and
 //! Shortcuts because they all share the same state directory.
 
+use std::collections::hash_map::DefaultHasher;
 use std::fs::{self, File, OpenOptions};
-use std::io::Write;
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::hash::{Hash, Hasher};
+use std::io::{ErrorKind, Write};
 
-use fs2::FileExt;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::error::{ElopliError, Result};
 
 static NONCE: AtomicU64 = AtomicU64::new(0);
 
-fn state_directory() -> PathBuf {
+const LOCK_TIMEOUT: Duration = Duration::from_secs(5);
+const LOCK_POLL: Duration = Duration::from_millis(10);
+
+pub(crate) fn state_directory() -> PathBuf {
 	if let Some(path) = std::env::var_os("ELOPLI_STATE_DIR") {
 		return PathBuf::from(path);
 	}
@@ -31,8 +35,10 @@ fn state_directory() -> PathBuf {
 }
 
 fn device_key(host: &str, port: u16) -> String {
-	let host: String = host
+	let host = host.trim().to_lowercase();
+	let safe: String = host
 		.chars()
+		.take(80)
 		.map(|character| {
 			if character.is_ascii_alphanumeric() || character == '-' || character == '.' {
 				character
@@ -41,7 +47,9 @@ fn device_key(host: &str, port: u16) -> String {
 			}
 		})
 		.collect();
-	format!("{host}-{port}")
+	let mut hasher = DefaultHasher::new();
+	host.hash(&mut hasher);
+	format!("{safe}-{port}-{:016x}", hasher.finish())
 }
 
 fn next_token() -> String {
@@ -64,8 +72,12 @@ pub(crate) struct ControlGuard {
 
 impl Control {
 	pub(crate) fn new(host: &str, port: u16) -> Self {
-		let directory = state_directory();
+		Self::new_in(host, port, state_directory())
+	}
+
+	pub(crate) fn new_in(host: &str, port: u16, directory: impl AsRef<Path>) -> Self {
 		let key = device_key(host, port);
+		let directory = directory.as_ref();
 		Self {
 			lock_path: directory.join(format!("{key}.lock")),
 			token_path: directory.join(format!("{key}.cancel")),
@@ -81,26 +93,43 @@ impl Control {
 		Ok(())
 	}
 
-	/// Ask any running pulse to stop. The caller should take the lock before
-	/// writing its own change so it cannot be overwritten by a pulse step.
-	pub(crate) fn cancel(&self) -> Result<()> {
+	fn write_token(&self, token: &str) -> Result<()> {
 		self.prepare()?;
 		let mut file = OpenOptions::new()
 			.create(true)
 			.write(true)
 			.truncate(true)
 			.open(&self.token_path)?;
-		file.write_all(next_token().as_bytes())?;
+		file.write_all(token.as_bytes())?;
 		file.sync_all()?;
 		Ok(())
+	}
+
+	/// Ask any running pulse to stop. The caller should take the lock before
+	/// writing its own change so it cannot be overwritten by a pulse step.
+	pub(crate) fn cancel(&self) -> Result<()> {
+		self.write_token(&next_token())
 	}
 
 	pub(crate) fn token(&self) -> Result<String> {
 		match fs::read_to_string(&self.token_path) {
 			Ok(token) => Ok(token),
-			Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+			Err(error) if error.kind() == ErrorKind::NotFound => Ok(String::new()),
 			Err(error) => Err(error.into()),
 		}
+	}
+
+	/// Claim the light for this action. The token is written before the lock,
+	/// then verified after acquisition so a newer action cannot be adopted by
+	/// an older one.
+	pub(crate) fn acquire(&self) -> Result<(ControlGuard, String)> {
+		let token = next_token();
+		self.write_token(&token)?;
+		let guard = self.lock()?;
+		if self.token()? != token {
+			return Err(ElopliError::Superseded);
+		}
+		Ok((guard, token))
 	}
 
 	pub(crate) fn lock(&self) -> Result<ControlGuard> {
@@ -109,14 +138,63 @@ impl Control {
 			.create(true)
 			.read(true)
 			.write(true)
+			.truncate(false)
 			.open(&self.lock_path)?;
-		file.lock_exclusive()?;
-		Ok(ControlGuard { file })
+		let deadline = Instant::now() + LOCK_TIMEOUT;
+		loop {
+			match file.try_lock() {
+				Ok(()) => return Ok(ControlGuard { file }),
+				Err(std::fs::TryLockError::WouldBlock) => {
+					if Instant::now() >= deadline {
+						return Err(ElopliError::LockTimeout);
+					}
+					std::thread::sleep(LOCK_POLL);
+				}
+				Err(std::fs::TryLockError::Error(error)) => return Err(error.into()),
+			}
+		}
 	}
 }
 
 impl Drop for ControlGuard {
 	fn drop(&mut self) {
-		let _ = FileExt::unlock(&self.file);
+		let _ = self.file.unlock();
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	fn temp_dir() -> PathBuf {
+		let directory = std::env::temp_dir().join(format!(
+			"elopli-control-{}-{}",
+			std::process::id(),
+			SystemTime::now()
+				.duration_since(UNIX_EPOCH)
+				.map(|duration| duration.as_nanos())
+				.unwrap_or_default()
+		));
+		fs::create_dir_all(&directory).unwrap();
+		directory
+	}
+
+	#[test]
+	fn acquire_serializes_and_writes_a_token() {
+		let control = Control::new_in("127.0.0.1", 9123, temp_dir());
+		let (guard, token) = control.acquire().unwrap();
+		assert_eq!(control.token().unwrap(), token);
+		drop(guard);
+		let (_guard, next) = control.acquire().unwrap();
+		assert_ne!(next, token);
+	}
+
+	#[test]
+	fn cancel_replaces_the_token() {
+		let control = Control::new_in("127.0.0.1", 9123, temp_dir());
+		let (guard, token) = control.acquire().unwrap();
+		control.cancel().unwrap();
+		assert_ne!(control.token().unwrap(), token);
+		drop(guard);
 	}
 }

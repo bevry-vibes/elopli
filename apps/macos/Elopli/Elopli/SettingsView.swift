@@ -56,7 +56,7 @@ struct PowerOnSheet: View {
 		self.model = model
 		self.device = device
 		_behavior = State(initialValue: Int(device.powerOn?.behavior ?? 1))
-		_brightness = State(initialValue: Double(device.powerOn?.brightness ?? 20))
+		_brightness = State(initialValue: Double(max(2, device.powerOn?.brightness ?? 20)))
 		_warmth = State(initialValue: Double(device.powerOn?.warmth ?? 35))
 	}
 
@@ -79,7 +79,7 @@ struct PowerOnSheet: View {
 					Image(systemName: "sun.max")
 						.foregroundStyle(.secondary)
 						.frame(width: 16)
-					Slider(value: $brightness, in: 0...100)
+					Slider(value: $brightness, in: 2...100)
 					Text("\(Int(brightness.rounded()))%")
 						.font(.caption.monospacedDigit())
 						.frame(width: 38, alignment: .trailing)
@@ -100,17 +100,21 @@ struct PowerOnSheet: View {
 				Button("Cancel") { dismiss() }
 					.keyboardShortcut(.cancelAction)
 				Button("Save") {
+					let defaults = behavior == 2
 					let mired = UInt16((143.0 + warmth / 100.0 * 201.0).rounded())
 					Task {
 						await model.setPowerOn(
 							device,
 							behavior: UInt8(behavior),
-							brightness: UInt8(brightness.rounded()),
-							temperatureMired: mired
+							brightness: defaults
+								? UInt8(min(100, max(2, brightness.rounded())))
+								: nil,
+							temperatureMired: defaults ? mired : nil
 						)
 						dismiss()
 					}
 				}
+				.disabled(device.powerOn == nil)
 				.keyboardShortcut(.defaultAction)
 			}
 		}

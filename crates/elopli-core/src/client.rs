@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value, json};
@@ -8,7 +10,7 @@ use crate::model::{
 	AccessoryInfo, LightState, PowerOnBehavior, PowerOnSettings, Snapshot, Update,
 	parse_accessory_info, parse_error_messages, parse_power_on_settings, parse_state,
 };
-use crate::pulse::{PulseCancellation, PulseConfig, PulseOutcome};
+use crate::pulse::{FRAME_INTERVAL_MS, MAX_FADE_MS, PulseCancellation, PulseConfig, PulseOutcome};
 use crate::sweep::SweepConfig;
 use crate::transport::{HttpTransport, TransportMode, build_transport};
 use crate::validate::{
@@ -16,17 +18,14 @@ use crate::validate::{
 };
 
 /// How often a running animation checks the light for an external change.
-/// The pulse checks every frame so an outside change is never overwritten;
-/// the sweep polls at this interval to keep its frame rate high.
+/// The pulse checks every frame for short animations; long pulses and sweeps
+/// check at this interval to keep the frame rate high.
 const EXTERNAL_CHECK_INTERVAL: Duration = Duration::from_millis(250);
-/// Animations send their own immediate keyframes at this interval. The light's
-/// stored colorChangeDurationMs smooths each small step.
-const ANIMATION_FRAME_MS: u32 = 100;
 
 /// Animations send a few keyframes and rely on the light's own fade. That
 /// only works over one reused connection; a new connection per keyframe
 /// eventually stops the light's HTTP server.
-const ANIMATION_TRANSPORT_ERROR: &str = "pulse and sweep need a persistent HTTP connection; the light drops repeated short-lived connections. Grant Elopli local network access and use the native transport.";
+const ANIMATION_TRANSPORT_ERROR: &str = "pulse and sweep need a persistent HTTP connection; the light drops repeated short-lived connections. Use the native transport and grant local network access if the platform asks for it.";
 
 pub struct ElopliClient {
 	host: String,
@@ -34,7 +33,7 @@ pub struct ElopliClient {
 	timeout: Duration,
 	retries: u32,
 	retry_delay: Duration,
-	transport: Box<dyn HttpTransport + Send + Sync>,
+	transport: Arc<dyn HttpTransport + Send + Sync>,
 	control: Control,
 }
 
@@ -46,9 +45,26 @@ impl ElopliClient {
 		retries: u32,
 		mode: TransportMode,
 	) -> Self {
+		Self::new_with_state_dir(host, port, timeout, retries, mode, None)
+	}
+
+	/// Construct a client with an explicit control/state directory. Tests use
+	/// this to avoid writing into the user's real application state.
+	pub fn new_with_state_dir(
+		host: impl Into<String>,
+		port: u16,
+		timeout: Duration,
+		retries: u32,
+		mode: TransportMode,
+		state_dir: Option<PathBuf>,
+	) -> Self {
 		let host = host.into();
+		let control = match state_dir {
+			Some(directory) => Control::new_in(&host, port, directory),
+			None => Control::new(&host, port),
+		};
 		Self {
-			control: Control::new(&host, port),
+			control,
 			host,
 			port,
 			timeout,
@@ -59,10 +75,34 @@ impl ElopliClient {
 	}
 
 	fn url(&self, path: &str) -> String {
-		format!("http://{}:{}{path}", self.host, self.port)
+		let host = if self.host.contains(':') && !self.host.starts_with('[') {
+			format!("[{}]", self.host)
+		} else {
+			self.host.clone()
+		};
+		format!("http://{host}:{}{path}", self.port)
 	}
 
 	fn request(&self, method: &str, path: &str, payload: Option<&Value>) -> Result<Value> {
+		self.request_with(method, path, payload, false)
+	}
+
+	fn request_persistent(
+		&self,
+		method: &str,
+		path: &str,
+		payload: Option<&Value>,
+	) -> Result<Value> {
+		self.request_with(method, path, payload, true)
+	}
+
+	fn request_with(
+		&self,
+		method: &str,
+		path: &str,
+		payload: Option<&Value>,
+		persistent: bool,
+	) -> Result<Value> {
 		let body = payload
 			.map(serde_json::to_vec)
 			.transpose()
@@ -70,10 +110,14 @@ impl ElopliClient {
 		let url = self.url(path);
 		let mut last_error: Option<ElopliError> = None;
 		for attempt in 0..=self.retries {
-			match self
-				.transport
-				.request(method, &url, body.as_deref(), self.timeout)
-			{
+			let response = if persistent {
+				self.transport
+					.request_persistent(method, &url, body.as_deref(), self.timeout)
+			} else {
+				self.transport
+					.request(method, &url, body.as_deref(), self.timeout)
+			};
+			match response {
 				Ok(response) => {
 					if response.status >= 400 {
 						let payload =
@@ -113,21 +157,54 @@ impl ElopliClient {
 		parse_state(&self.request("GET", "/elgato/lights", None)?)
 	}
 
-	pub fn update(&self, update: Update) -> Result<LightState> {
+	fn state_persistent(&self) -> Result<LightState> {
+		parse_state(&self.request_persistent("GET", "/elgato/lights", None)?)
+	}
+
+	pub fn update(&self, mut update: Update) -> Result<LightState> {
+		if update.is_empty() {
+			return Err(ElopliError::InvalidValue(
+				"no properties were provided".into(),
+			));
+		}
+		if let Some(brightness) = update.brightness {
+			validate_brightness(f64::from(brightness))?;
+		}
+		if let Some(temperature) = update.temperature {
+			validate_temperature(f64::from(temperature))?;
+		}
+		if let Some(duration_ms) = update.duration_ms
+			&& duration_ms > MAX_FADE_MS
+		{
+			return Err(ElopliError::InvalidValue(format!(
+				"transition duration must be {MAX_FADE_MS} ms or less because the firmware snaps at 1000 ms"
+			)));
+		}
 		let _guard = self.begin_action()?;
+		if update.on == Some(true) && update.brightness.is_none() {
+			let current = self.state()?;
+			if current.brightness < 2 {
+				update.brightness = Some(2);
+			}
+		}
 		self.write_update(update)
 	}
 
 	fn write_update(&self, update: Update) -> Result<LightState> {
-		self.send_update(update, false)
+		self.send_update(update, false, false)
 	}
 
 	/// Pulse frames may reach 0% brightness, which switches the light off.
 	fn write_pulse_update(&self, update: Update) -> Result<LightState> {
-		self.send_update(update, true)
+		self.send_update(update, true, true)
 	}
 
-	fn send_update(&self, update: Update, allow_zero_brightness: bool) -> Result<LightState> {
+	fn send_update(
+		&self,
+		update: Update,
+		allow_zero_brightness: bool,
+		persistent: bool,
+	) -> Result<LightState> {
 		if update.is_empty() {
 			return Err(ElopliError::InvalidValue(
 				"no properties were provided".into(),
@@ -152,10 +229,20 @@ impl ElopliClient {
 			);
 		}
 		if let Some(duration_ms) = update.duration_ms {
+			if duration_ms > MAX_FADE_MS {
+				return Err(ElopliError::InvalidValue(format!(
+					"transition duration must be {MAX_FADE_MS} ms or less because the firmware snaps at 1000 ms"
+				)));
+			}
 			light.insert("durationMs".into(), json!(duration_ms));
 		}
 		let payload = json!({ "lights": [Value::Object(light)] });
-		parse_state(&self.request("PUT", "/elgato/lights", Some(&payload))?)
+		let response = if persistent {
+			self.request_persistent("PUT", "/elgato/lights", Some(&payload))
+		} else {
+			self.request("PUT", "/elgato/lights", Some(&payload))
+		};
+		parse_state(&response?)
 	}
 
 	pub fn set_on(&self, on: bool) -> Result<LightState> {
@@ -166,10 +253,17 @@ impl ElopliClient {
 	}
 
 	pub fn toggle(&self) -> Result<LightState> {
-		self.update(Update {
-			on: Some(!self.state()?.on),
+		let _guard = self.begin_action()?;
+		let current = self.state()?;
+		let visible = current.on && current.brightness >= 2;
+		let mut update = Update {
+			on: Some(!visible),
 			..Update::default()
-		})
+		};
+		if !visible && current.brightness < 2 {
+			update.brightness = Some(2);
+		}
+		self.write_update(update)
 	}
 
 	pub fn info(&self) -> Result<AccessoryInfo> {
@@ -199,6 +293,12 @@ impl ElopliClient {
 		brightness: Option<u8>,
 		temperature: Option<u16>,
 	) -> Result<PowerOnSettings> {
+		let brightness = brightness
+			.map(|value| validate_brightness(f64::from(value)))
+			.transpose()?;
+		let temperature = temperature
+			.map(|value| validate_temperature(f64::from(value)))
+			.transpose()?;
 		let _guard = self.begin_action()?;
 		let settings = self.request("GET", "/elgato/lights/settings", None)?;
 		let mut settings = settings.as_object().cloned().ok_or_else(|| {
@@ -206,16 +306,10 @@ impl ElopliClient {
 		})?;
 		settings.insert("powerOnBehavior".into(), json!(behavior as u8));
 		if let Some(brightness) = brightness {
-			settings.insert(
-				"powerOnBrightness".into(),
-				json!(validate_brightness(f64::from(brightness))?),
-			);
+			settings.insert("powerOnBrightness".into(), json!(brightness));
 		}
 		if let Some(temperature) = temperature {
-			settings.insert(
-				"powerOnTemperature".into(),
-				json!(validate_temperature(f64::from(temperature))?),
-			);
+			settings.insert("powerOnTemperature".into(), json!(temperature));
 		}
 		self.request(
 			"PUT",
@@ -238,15 +332,35 @@ impl ElopliClient {
 
 	pub fn pulse(&self, config: PulseConfig) -> Result<PulseOutcome> {
 		config.validate()?;
-		// Cancel any pulse that is already running before queueing for the lock.
-		self.control.cancel()?;
-		let _guard = self.control.lock()?;
-		let token = self.control.token()?;
-		let original = self.state()?;
+		self.require_persistent_transport()?;
+		let (_guard, token) = match self.control.acquire() {
+			Ok(value) => value,
+			Err(ElopliError::Superseded) => {
+				return Ok(PulseOutcome::Cancelled {
+					state: self.state()?,
+					reason: PulseCancellation::Superseded,
+				});
+			}
+			Err(error) => return Err(error),
+		};
+		let original = self.state_persistent()?;
 		self.require_persistent_transport()?;
 		let result = self.run_pulse(config, original, &token);
-		if result.is_err() {
-			let _ = self.restore_state(original);
+		match &result {
+			Err(_) => {
+				let _ = self.restore_state(original);
+			}
+			Ok(PulseOutcome::Cancelled {
+				reason: PulseCancellation::Superseded,
+				..
+			}) => {
+				let _ = self.restore_state(original);
+				return Ok(PulseOutcome::Cancelled {
+					state: original,
+					reason: PulseCancellation::Superseded,
+				});
+			}
+			_ => {}
 		}
 		result
 	}
@@ -254,20 +368,41 @@ impl ElopliClient {
 	/// Sweep the temperature across the full cool-to-warm range.
 	pub fn sweep(&self, config: SweepConfig) -> Result<PulseOutcome> {
 		config.validate()?;
-		self.control.cancel()?;
-		let _guard = self.control.lock()?;
-		let token = self.control.token()?;
-		let original = self.state()?;
+		self.require_persistent_transport()?;
+		let (_guard, token) = match self.control.acquire() {
+			Ok(value) => value,
+			Err(ElopliError::Superseded) => {
+				return Ok(PulseOutcome::Cancelled {
+					state: self.state()?,
+					reason: PulseCancellation::Superseded,
+				});
+			}
+			Err(error) => return Err(error),
+		};
+		let original = self.state_persistent()?;
 		self.require_persistent_transport()?;
 		let result = self.run_sweep(config, original, &token);
-		if result.is_err() {
-			let _ = self.restore_state(original);
+		match &result {
+			Err(_) => {
+				let _ = self.restore_state(original);
+			}
+			Ok(PulseOutcome::Cancelled {
+				reason: PulseCancellation::Superseded,
+				..
+			}) => {
+				let _ = self.restore_state(original);
+				return Ok(PulseOutcome::Cancelled {
+					state: original,
+					reason: PulseCancellation::Superseded,
+				});
+			}
+			_ => {}
 		}
 		result
 	}
 
-	/// Stop a running pulse without changing the light. The pulse leaves the
-	/// light at its last frame, or at the external value it detected.
+	/// Stop a running pulse or sweep. The animation restores the original
+	/// state; an external change is preserved instead.
 	pub fn cancel_pulse(&self) -> Result<()> {
 		self.control.cancel()
 	}
@@ -281,19 +416,57 @@ impl ElopliClient {
 		let cool = warmth_to_mired(0.0)?;
 		let warm = warmth_to_mired(100.0)?;
 		let segments = config.count.saturating_mul(2).saturating_add(1);
+		let originally_on = original.on && original.brightness >= 2;
+		let start_brightness = config.brightness.unwrap_or(if originally_on {
+			original.brightness
+		} else {
+			original.brightness.max(2)
+		});
+		let final_brightness = if originally_on {
+			original.brightness
+		} else {
+			0
+		};
+		let final_on = if originally_on { Some(true) } else { None };
 		let mut expected = original;
 		let mut last_external_check = Instant::now();
-		let durations = config.segment_durations(original.temperature)?;
-		if let Some(brightness) = config.brightness {
+		let mut durations =
+			config.segment_durations(original.temperature, original.brightness, originally_on)?;
+
+		if !originally_on {
+			// Bring an off light up to its working brightness before the
+			// temperature sweep. The turn-on time comes out of the initial
+			// segment, so the total duration stays the same.
+			let turn_on_ms = durations[0].saturating_sub(100).min(1_000);
+			let initial_brightness = if turn_on_ms > 0 { 2 } else { start_brightness };
 			expected = self.write_pulse_update(Update {
 				on: Some(true),
-				brightness: Some(brightness),
+				brightness: Some(initial_brightness),
 				..Update::default()
 			})?;
-		} else if !original.on {
+			if turn_on_ms > 0 && start_brightness > 2 {
+				if let Some(outcome) = self.ramp_to(
+					token,
+					expected,
+					start_brightness,
+					original.temperature,
+					Some(true),
+					turn_on_ms,
+					0,
+					false,
+					true,
+					false,
+					&mut expected,
+					Some(&mut last_external_check),
+				)? {
+					return Ok(outcome);
+				}
+				durations[0] = durations[0].saturating_sub(turn_on_ms).max(1);
+			}
+		} else if config.brightness.is_some() {
 			expected = self.write_pulse_update(Update {
 				on: Some(true),
-				brightness: Some(original.brightness.max(2)),
+				brightness: Some(start_brightness),
 				..Update::default()
 			})?;
 		}
@@ -302,7 +475,7 @@ impl ElopliClient {
 		if let Some(outcome) = self.ramp_to(
 			token,
 			expected,
-			original.brightness,
+			start_brightness,
 			warm,
 			Some(true),
 			durations[0],
@@ -321,7 +494,7 @@ impl ElopliClient {
 			if let Some(outcome) = self.ramp_to(
 				token,
 				expected,
-				original.brightness,
+				start_brightness,
 				cool,
 				Some(true),
 				durations[(1 + cycle * 2) as usize],
@@ -334,11 +507,11 @@ impl ElopliClient {
 			)? {
 				return Ok(outcome);
 			}
-			if cycle + 1 < config.count {
-				if let Some(outcome) = self.ramp_to(
+			if cycle + 1 < config.count
+				&& let Some(outcome) = self.ramp_to(
 					token,
 					expected,
-					original.brightness,
+					start_brightness,
 					warm,
 					Some(true),
 					durations[(2 + cycle * 2) as usize],
@@ -349,22 +522,21 @@ impl ElopliClient {
 					&mut expected,
 					Some(&mut last_external_check),
 				)? {
-					return Ok(outcome);
-				}
+				return Ok(outcome);
 			}
 		}
 
-		// Return from the cool end to the original temperature.
+		// Return from the cool end to the original temperature and brightness.
 		if let Some(outcome) = self.ramp_to(
 			token,
 			expected,
-			original.brightness,
+			final_brightness,
 			original.temperature,
-			Some(true),
+			final_on,
 			durations[(segments - 1) as usize],
 			0,
 			false,
-			config.brightness.is_some(),
+			true,
 			true,
 			&mut expected,
 			Some(&mut last_external_check),
@@ -376,17 +548,17 @@ impl ElopliClient {
 			return Ok(outcome);
 		}
 		// The final ramp already targeted the original values. Restoring
-		// immediately would snap the last part of that fade. Only restore the
-		// power state when the light was originally off.
-		if !original.on {
+		// immediately would snap the last part of that fade. Restore the power
+		// state when the light was not visibly on before the sweep.
+		if !originally_on {
 			self.restore_state(original)?;
 		}
 		Ok(PulseOutcome::Completed(original))
 	}
 
 	fn begin_action(&self) -> Result<ControlGuard> {
-		self.control.cancel()?;
-		self.control.lock()
+		let (guard, _) = self.control.acquire()?;
+		Ok(guard)
 	}
 
 	fn require_persistent_transport(&self) -> Result<()> {
@@ -403,16 +575,21 @@ impl ElopliClient {
 		original: LightState,
 		token: &str,
 	) -> Result<PulseOutcome> {
-		let mut plan = config.plan(original.on, original.brightness);
+		let originally_on = original.on && original.brightness >= 2;
+		let mut plan = config.plan(originally_on, original.brightness);
 		let check_every_frame = config.duration_ms <= 2_000;
 		let mut expected = original;
 		let mut from = LightState {
-			brightness: if original.on { original.brightness } else { 0 },
+			brightness: if originally_on {
+				original.brightness
+			} else {
+				0
+			},
 			..original
 		};
 		let mut last_external_check = Instant::now();
 
-		if !original.on {
+		if !originally_on {
 			// Turn on at the 2% floor first, then rise. This avoids jumping on
 			// at the stored brightness.
 			let turn_on_ms = plan
@@ -458,9 +635,9 @@ impl ElopliClient {
 		if let Some(outcome) = self.cancelled(token, &expected)? {
 			return Ok(outcome);
 		}
-		// An on light already ended at its original value. An off light ended
-		// at 0%, so confirm the power state is off.
-		if !original.on {
+		// A visible light already ended at its original value. An off light
+		// ended at 0%, so confirm the exact original power state.
+		if !originally_on {
 			self.restore_state(original)?;
 		}
 		Ok(PulseOutcome::Completed(original))
@@ -495,7 +672,7 @@ impl ElopliClient {
 			(false, true) => u32::from(to_temperature.abs_diff(from.temperature)),
 			(false, false) => 1,
 		};
-		let rate_steps = (motion_ms / ANIMATION_FRAME_MS).max(1);
+		let rate_steps = (motion_ms / FRAME_INTERVAL_MS).max(1);
 		let steps = distance.max(1).min(rate_steps).max(1);
 		let step_ms = motion_ms.div_ceil(steps).max(1);
 		let started = Instant::now();
@@ -504,17 +681,17 @@ impl ElopliClient {
 			self.require_persistent_transport()?;
 			if self.control.token()? != token {
 				return Ok(Some(PulseOutcome::Cancelled {
-					state: self.state()?,
+					state: self.state_persistent()?,
 					reason: PulseCancellation::Superseded,
 				}));
 			}
 			let external_change = if check_every_frame {
-				let current = self.state()?;
+				let current = self.state_persistent()?;
 				(current != *expected).then_some(current)
 			} else {
 				match last_external_check.as_deref_mut() {
 					Some(last_check) if last_check.elapsed() >= EXTERNAL_CHECK_INTERVAL => {
-						let current = self.state()?;
+						let current = self.state_persistent()?;
 						*last_check = Instant::now();
 						(current != *expected).then_some(current)
 					}
@@ -557,11 +734,11 @@ impl ElopliClient {
 	fn cancelled(&self, token: &str, expected: &LightState) -> Result<Option<PulseOutcome>> {
 		if self.control.token()? != token {
 			return Ok(Some(PulseOutcome::Cancelled {
-				state: self.state()?,
+				state: self.state_persistent()?,
 				reason: PulseCancellation::Superseded,
 			}));
 		}
-		let current = self.state()?;
+		let current = self.state_persistent()?;
 		if current != *expected {
 			return Ok(Some(PulseOutcome::Cancelled {
 				state: current,

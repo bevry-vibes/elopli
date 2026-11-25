@@ -2,6 +2,7 @@
 name = "elopli"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
@@ -12,7 +13,10 @@ name = "elopli"
 path = "src/main.rs"
 
 [dependencies]
-elopli-core = { path = "../elopli-core" }
+elopli-core = { version = "0.1.0", path = "../elopli-core" }
 clap.workspace = true
 rayon.workspace = true
 serde_json.workspace = true
+
+[lints]
+workspace = true

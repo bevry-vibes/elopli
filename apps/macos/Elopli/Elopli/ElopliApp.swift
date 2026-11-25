@@ -14,6 +14,9 @@ struct ElopliApp: App {
 	var body: some Scene {
 		MenuBarExtra("Elopli", systemImage: "lightbulb") {
 			ContentView(model: model)
+				.onAppear {
+					appDelegate.model = model
+				}
 		}
 		.menuBarExtraStyle(.window)
 	}

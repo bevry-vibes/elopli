@@ -1,15 +1,41 @@
-use std::path::PathBuf;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use elopli_core::pulse::MAX_FADE_MS;
 use elopli_core::{
-	Config, Device, ElopliClient, ElopliError, LightState, PowerOnBehavior, PulseConfig, Result,
-	SweepConfig, TransportMode, Update, config_path, discover, kelvin_to_mired,
-	validate_brightness, validate_display_name, validate_temperature, validate_warmth,
+	Config, DEFAULT_DURATION, Device, ElopliClient, ElopliError, LightState, PowerOnBehavior,
+	PulseConfig, Result, SweepConfig, TransportMode, Update, config_path, discover,
+	kelvin_to_mired, parse_duration, validate_brightness, validate_display_name,
+	validate_temperature, validate_warmth,
 };
 use rayon::prelude::*;
 use serde_json::{Map, Value, json};
+
+macro_rules! out {
+	($($arg:tt)*) => {{
+		let mut stdout = std::io::stdout().lock();
+		let _ = writeln!(stdout, $($arg)*);
+	}};
+}
+
+fn absolute_path(path: &Path) -> PathBuf {
+	path.canonicalize()
+		.or_else(|_| std::path::absolute(path))
+		.unwrap_or_else(|_| path.to_path_buf())
+}
+
+fn duration_ms(input: &str, minimum: u32, maximum: u32, label: &str) -> Result<u32> {
+	let value = parse_duration(input)?;
+	if !(minimum..=maximum).contains(&value) {
+		return Err(ElopliError::InvalidValue(format!(
+			"{label} duration must be between {minimum} and {maximum} ms"
+		)));
+	}
+	Ok(value)
+}
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum TransportArg {
@@ -26,6 +52,26 @@ impl From<TransportArg> for TransportMode {
 			TransportArg::Curl => TransportMode::Curl,
 		}
 	}
+}
+
+fn parse_wait_seconds(value: &str) -> std::result::Result<f64, String> {
+	let value = value
+		.parse::<f64>()
+		.map_err(|_| "wait must be a number of seconds".to_string())?;
+	if !value.is_finite() || !(0.0..=3600.0).contains(&value) {
+		return Err("wait must be between 0 and 3600 seconds".into());
+	}
+	Ok(value)
+}
+
+fn parse_timeout_seconds(value: &str) -> std::result::Result<f64, String> {
+	let value = value
+		.parse::<f64>()
+		.map_err(|_| "timeout must be a number of seconds".to_string())?;
+	if !value.is_finite() || !(0.001..=60.0).contains(&value) {
+		return Err("timeout must be between 0.001 and 60 seconds".into());
+	}
+	Ok(value)
 }
 
 #[derive(Debug, Parser)]
@@ -48,11 +94,18 @@ struct Cli {
 		long,
 		global = true,
 		default_value_t = 3.0,
+		value_parser = parse_timeout_seconds,
 		value_name = "SECONDS",
-		help = "request timeout in seconds"
+		help = "request timeout in seconds, 0.001 to 60"
 	)]
 	timeout: f64,
-	#[arg(long, global = true, default_value_t = 2, help = "retries per request")]
+	#[arg(
+		long,
+		global = true,
+		default_value_t = 2,
+		value_parser = clap::value_parser!(u32).range(0..=10),
+		help = "retries per request"
+	)]
 	retries: u32,
 	#[arg(
 		long,
@@ -78,7 +131,7 @@ enum Command {
 	Off(TargetWaitArgs),
 	#[command(about = "toggle one or more lights")]
 	Toggle(TargetWaitArgs),
-	#[command(about = "set brightness from 0 to 100")]
+	#[command(about = "set brightness from 2 to 100")]
 	Brightness(ValueArgs),
 	#[command(about = "set warmth from 0 (cool) to 100 (warm)")]
 	Warmth(ValueArgs),
@@ -125,8 +178,9 @@ struct WaitArgs {
 	#[arg(
 		long,
 		default_value_t = 0.0,
+		value_parser = parse_wait_seconds,
 		value_name = "SECONDS",
-		help = "keep retrying unreachable devices for this long"
+		help = "keep retrying unreachable devices for this long, up to 3600"
 	)]
 	wait: f64,
 }
@@ -157,7 +211,7 @@ struct SetArgs {
 	on: bool,
 	#[arg(long, help = "turn the light off")]
 	off: bool,
-	#[arg(long, value_name = "PERCENT", help = "brightness from 0 to 100")]
+	#[arg(long, value_name = "PERCENT", help = "brightness from 2 to 100")]
 	brightness: Option<f64>,
 	#[arg(
 		long,
@@ -173,8 +227,12 @@ struct SetArgs {
 	kelvin: Option<f64>,
 	#[arg(long, value_name = "MIRED", help = "colour temperature in mired")]
 	temperature: Option<f64>,
-	#[arg(long, value_name = "MS", help = "transition time")]
-	duration_ms: Option<u32>,
+	#[arg(
+		long,
+		value_name = "DURATION",
+		help = "fade time, for example 500ms; values above 900ms snap on this firmware"
+	)]
+	duration: Option<String>,
 	#[command(flatten)]
 	wait: WaitArgs,
 }
@@ -188,6 +246,8 @@ struct RenameArgs {
 	device: String,
 	#[arg(value_name = "NEW_NAME", help = "new display name (1 to 63 bytes)")]
 	new_name: String,
+	#[command(flatten)]
+	wait: WaitArgs,
 }
 
 #[derive(Debug, Args)]
@@ -227,8 +287,9 @@ struct DiscoverArgs {
 	#[arg(
 		long,
 		default_value_t = 3.0,
+		value_parser = parse_wait_seconds,
 		value_name = "SECONDS",
-		help = "browse time in seconds"
+		help = "browse time in seconds, up to 3600"
 	)]
 	wait: f64,
 	#[arg(long, help = "add the found devices to the registry")]
@@ -248,16 +309,15 @@ struct PulseArgs {
 	count: u32,
 	#[arg(
 		long,
-		default_value_t = 3000,
-		value_parser = clap::value_parser!(u32).range(50..=10000),
-		value_name = "MS",
-		help = "target duration of the pulse animation in milliseconds (default 3000)"
+		default_value = DEFAULT_DURATION,
+		value_name = "DURATION",
+		help = "target duration, for example 1.0s, 500ms, or 10m (default 1.0s, up to 1 hour)"
 	)]
-	duration: u32,
+	duration: String,
 	#[arg(
 		long,
 		default_value_t = 100,
-		value_parser = clap::value_parser!(u8).range(0..=100),
+		value_parser = clap::value_parser!(u8).range(2..=100),
 		value_name = "PERCENT",
 		help = "peak value in percent (default 100)"
 	)]
@@ -285,18 +345,17 @@ struct SweepArgs {
 	count: u32,
 	#[arg(
 		long,
-		default_value_t = 3000,
-		value_parser = clap::value_parser!(u32).range(100..=60000),
-		value_name = "MS",
-		help = "duration of the entire sweep animation in milliseconds (default 3000)"
+		default_value = DEFAULT_DURATION,
+		value_name = "DURATION",
+		help = "duration of the entire sweep, for example 1.0s, 500ms, or 10m (default 1.0s, up to 1 hour)"
 	)]
-	duration: u32,
+	duration: String,
 	#[arg(
 		long,
 		default_value_t = 0,
 		value_parser = clap::value_parser!(u8).range(0..=100),
 		value_name = "PERCENT",
-		help = "brightness to hold for the sweep; 0 keeps the current brightness"
+		help = "brightness to hold for the sweep; 0 or 1 keeps the current brightness"
 	)]
 	brightness: u8,
 }
@@ -330,15 +389,17 @@ struct Settings {
 }
 
 fn settings(cli: &Cli) -> Result<Settings> {
-	if cli.timeout <= 0.0 || !cli.timeout.is_finite() {
+	if cli.timeout <= 0.0 || !cli.timeout.is_finite() || cli.timeout > 60.0 {
 		return Err(ElopliError::InvalidValue(
-			"--timeout must be greater than zero".into(),
+			"--timeout must be between 0 and 60 seconds".into(),
 		));
 	}
+	let timeout = Duration::try_from_secs_f64(cli.timeout)
+		.map_err(|_| ElopliError::InvalidValue("--timeout is out of range".into()))?;
 	Ok(Settings {
 		config_path: config_path(cli.config.as_deref()),
 		json: cli.json,
-		timeout: Duration::from_secs_f64(cli.timeout),
+		timeout,
 		retries: cli.retries,
 		transport: cli.transport.into(),
 	})
@@ -370,16 +431,13 @@ fn merge(record: &mut Map<String, Value>, value: Value) {
 
 fn error_record(device: &Device, error: &ElopliError) -> Value {
 	let (reachable, state) = match error {
-		ElopliError::Api { .. }
-		| ElopliError::Unsupported(_)
-		| ElopliError::Config(_)
-		| ElopliError::InvalidValue(_)
-		| ElopliError::InvalidResponse(_) => (true, "error"),
-		_ => (false, "offline"),
+		ElopliError::Connection(_) | ElopliError::Discovery(_) => (false, "offline"),
+		_ => (true, "error"),
 	};
 	let mut record = base(device);
 	record.insert("reachable".into(), json!(reachable));
 	record.insert("state".into(), json!(state));
+	record.insert("error_kind".into(), json!(error.kind()));
 	record.insert("error".into(), json!(error.to_string()));
 	Value::Object(record)
 }
@@ -398,14 +456,21 @@ fn state_record(device: &Device, settings: &Settings) -> Value {
 	}
 }
 
-fn with_wait<T>(mut operation: impl FnMut() -> Result<T>, wait: f64) -> Result<T> {
-	let deadline = Instant::now() + Duration::from_secs_f64(wait.max(0.0));
+fn wait_for_reachable(client: &ElopliClient, wait: f64) -> Result<()> {
+	if wait <= 0.0 {
+		return Ok(());
+	}
+	let timeout = Duration::try_from_secs_f64(wait).map_err(|_| {
+		ElopliError::InvalidValue("--wait must be a positive finite number of seconds".into())
+	})?;
+	let deadline = Instant::now() + timeout;
 	loop {
-		match operation() {
+		match client.state() {
+			Ok(_) => return Ok(()),
 			Err(ElopliError::Connection(_)) if Instant::now() < deadline => {
 				std::thread::sleep(Duration::from_secs(1));
 			}
-			result => return result,
+			Err(error) => return Err(error),
 		}
 	}
 }
@@ -417,7 +482,8 @@ fn apply_record(
 	wait: f64,
 ) -> Value {
 	let client = client(device, settings);
-	match with_wait(|| operation(&client), wait) {
+	let result = wait_for_reachable(&client, wait).and_then(|()| operation(&client));
+	match result {
 		Ok(state) => {
 			let mut record = base(device);
 			record.insert("reachable".into(), json!(true));
@@ -467,13 +533,12 @@ fn power_on_record(
 	wait: f64,
 ) -> Value {
 	let client = client(device, settings);
-	let result = match update {
-		Some((behavior, brightness, temperature)) => with_wait(
-			|| client.set_power_on(behavior, brightness, temperature),
-			wait,
-		),
+	let result = wait_for_reachable(&client, wait).and_then(|()| match update {
+		Some((behavior, brightness, temperature)) => {
+			client.set_power_on(behavior, brightness, temperature)
+		}
 		None => client.power_on_settings(),
-	};
+	});
 	match result {
 		Ok(power_on) => {
 			let mut record = base(device);
@@ -485,9 +550,9 @@ fn power_on_record(
 	}
 }
 
-fn rename_record(device: &Device, settings: &Settings, name: &str) -> Value {
+fn rename_record(device: &Device, settings: &Settings, name: &str, wait: f64) -> Value {
 	let client = client(device, settings);
-	match client.rename(name) {
+	match wait_for_reachable(&client, wait).and_then(|()| client.rename(name)) {
 		Ok(display_name) => {
 			let mut record = base(device);
 			record.insert("reachable".into(), json!(true));
@@ -502,7 +567,7 @@ fn pulse_record(device: &Device, settings: &Settings, config: PulseConfig) -> Va
 	let client = client(device, settings);
 	match client.pulse(config) {
 		Ok(outcome) => {
-			let state = outcome.state().clone();
+			let state = *outcome.state();
 			let mut record = base(device);
 			record.insert("reachable".into(), json!(true));
 			record.insert("state".into(), json!(if state.on { "on" } else { "off" }));
@@ -525,7 +590,7 @@ fn sweep_record(device: &Device, settings: &Settings, config: SweepConfig) -> Va
 	let client = client(device, settings);
 	match client.sweep(config) {
 		Ok(outcome) => {
-			let state = outcome.state().clone();
+			let state = *outcome.state();
 			let mut record = base(device);
 			record.insert("reachable".into(), json!(true));
 			record.insert("state".into(), json!(if state.on { "on" } else { "off" }));
@@ -544,6 +609,16 @@ fn sweep_record(device: &Device, settings: &Settings, config: SweepConfig) -> Va
 }
 
 fn resolve_devices(args: &TargetArgs, config: &Config, default_all: bool) -> Result<Vec<Device>> {
+	if args.all && !args.devices.is_empty() {
+		return Err(ElopliError::InvalidValue(
+			"--all cannot be combined with device names".into(),
+		));
+	}
+	if !args.host.is_empty() && (args.all || !args.devices.is_empty()) {
+		return Err(ElopliError::InvalidValue(
+			"--host cannot be combined with --all or device names".into(),
+		));
+	}
 	if !args.host.is_empty() {
 		return Ok(args
 			.host
@@ -593,13 +668,19 @@ fn resolve_devices(args: &TargetArgs, config: &Config, default_all: bool) -> Res
 }
 
 fn parallel(devices: &[Device], operation: impl Fn(&Device) -> Value + Sync + Send) -> Vec<Value> {
-	devices.par_iter().map(operation).collect()
+	let threads = devices.len().clamp(1, 8);
+	match rayon::ThreadPoolBuilder::new().num_threads(threads).build() {
+		Ok(pool) => pool.install(|| devices.par_iter().map(operation).collect()),
+		Err(_) => devices.iter().map(operation).collect(),
+	}
 }
 
 fn exit_code(records: &[Value]) -> u8 {
 	if records.iter().any(|record| {
 		record.get("reachable").and_then(Value::as_bool) != Some(true)
 			|| record.get("error").is_some()
+			|| record.get("pulse_completed").and_then(Value::as_bool) == Some(false)
+			|| record.get("sweep_completed").and_then(Value::as_bool) == Some(false)
 	}) {
 		1
 	} else {
@@ -608,20 +689,23 @@ fn exit_code(records: &[Value]) -> u8 {
 }
 
 fn print_json(value: &Value) {
-	println!(
+	out!(
 		"{}",
 		serde_json::to_string_pretty(value).unwrap_or_else(|_| "null".into())
 	);
 }
 
 fn print_table(headers: &[&str], rows: &[Vec<String>]) {
+	let width = |value: &str| value.chars().count();
 	let mut widths = headers
 		.iter()
-		.map(|header| header.len())
+		.map(|header| width(header))
 		.collect::<Vec<_>>();
 	for row in rows {
 		for (index, cell) in row.iter().enumerate() {
-			widths[index] = widths[index].max(cell.len());
+			if let Some(column) = widths.get_mut(index) {
+				*column = (*column).max(width(cell));
+			}
 		}
 	}
 	let header = headers
@@ -630,15 +714,20 @@ fn print_table(headers: &[&str], rows: &[Vec<String>]) {
 		.map(|(index, header)| format!("{header:<width$}", width = widths[index]))
 		.collect::<Vec<_>>()
 		.join("  ");
-	println!("{}", header.trim_end());
+	out!("{}", header.trim_end());
 	for row in rows {
 		let line = row
 			.iter()
 			.enumerate()
-			.map(|(index, cell)| format!("{cell:<width$}", width = widths[index]))
+			.map(|(index, cell)| {
+				format!(
+					"{cell:<width$}",
+					width = widths.get(index).copied().unwrap_or(0)
+				)
+			})
 			.collect::<Vec<_>>()
 			.join("  ");
-		println!("{}", line.trim_end());
+		out!("{}", line.trim_end());
 	}
 }
 
@@ -735,22 +824,22 @@ fn print_status(records: &[Value]) {
 
 fn print_states(records: &[Value]) {
 	if records.is_empty() {
-		println!("No devices found.");
+		out!("No devices found.");
 		return;
 	}
 	for record in records {
-		println!("{}", format_state(record));
+		out!("{}", format_state(record));
 	}
 }
 
 fn print_info(records: &[Value]) {
 	for (index, record) in records.iter().enumerate() {
 		if index > 0 {
-			println!();
+			out!();
 		}
 		let name = record.get("name").and_then(Value::as_str).unwrap_or("?");
 		if record.get("reachable").and_then(Value::as_bool) != Some(true) {
-			println!(
+			out!(
 				"{name}: offline ({})",
 				record
 					.get("error")
@@ -760,25 +849,25 @@ fn print_info(records: &[Value]) {
 			continue;
 		}
 		if let Some(error) = record.get("error").and_then(Value::as_str) {
-			println!("{name}: failed ({error})");
+			out!("{name}: failed ({error})");
 			continue;
 		}
-		println!(
+		out!(
 			"{name} ({})",
 			record.get("host").and_then(Value::as_str).unwrap_or("?")
 		);
-		println!(
+		out!(
 			"  Product:     {}",
 			record.get("product").and_then(Value::as_str).unwrap_or("-")
 		);
-		println!(
+		out!(
 			"  Firmware:    {}",
 			record
 				.get("firmware")
 				.and_then(Value::as_str)
 				.unwrap_or("-")
 		);
-		println!(
+		out!(
 			"  Device name: {}",
 			record
 				.get("display_name")
@@ -787,7 +876,7 @@ fn print_info(records: &[Value]) {
 				.unwrap_or("(none)")
 		);
 		if let Some(wifi) = record.get("wifi").and_then(Value::as_object) {
-			println!(
+			out!(
 				"  Wi-Fi:       {}, {} MHz, {} dBm ({})",
 				wifi.get("ssid").and_then(Value::as_str).unwrap_or("-"),
 				wifi.get("frequency_mhz")
@@ -797,7 +886,7 @@ fn print_info(records: &[Value]) {
 				wifi.get("quality").and_then(Value::as_str).unwrap_or("-")
 			);
 		}
-		println!(
+		out!(
 			"  State:       {}, brightness {}%, warmth {}%",
 			record.get("state").and_then(Value::as_str).unwrap_or("-"),
 			record
@@ -813,7 +902,7 @@ fn print_power_on(records: &[Value]) {
 	for record in records {
 		let name = record.get("name").and_then(Value::as_str).unwrap_or("?");
 		if record.get("reachable").and_then(Value::as_bool) != Some(true) {
-			println!(
+			out!(
 				"{name}: offline ({})",
 				record
 					.get("error")
@@ -823,10 +912,10 @@ fn print_power_on(records: &[Value]) {
 			continue;
 		}
 		if let Some(error) = record.get("error").and_then(Value::as_str) {
-			println!("{name}: failed ({error})");
+			out!("{name}: failed ({error})");
 			continue;
 		}
-		println!(
+		out!(
 			"{name}: {} ({}), default brightness {}%, default warmth {}% ({} mired, {} K)",
 			record
 				.get("power_on_behavior_label")
@@ -860,7 +949,7 @@ fn print_renames(records: &[Value]) {
 	for record in records {
 		let name = record.get("name").and_then(Value::as_str).unwrap_or("?");
 		if record.get("reachable").and_then(Value::as_bool) != Some(true) {
-			println!(
+			out!(
 				"{name}: offline ({})",
 				record
 					.get("error")
@@ -868,9 +957,9 @@ fn print_renames(records: &[Value]) {
 					.unwrap_or("unreachable")
 			);
 		} else if let Some(error) = record.get("error").and_then(Value::as_str) {
-			println!("{name}: failed ({error})");
+			out!("{name}: failed ({error})");
 		} else {
-			println!(
+			out!(
 				"{name}: renamed to {}",
 				record
 					.get("display_name")
@@ -885,7 +974,7 @@ fn print_pulses(records: &[Value]) {
 	for record in records {
 		let name = record.get("name").and_then(Value::as_str).unwrap_or("?");
 		if record.get("reachable").and_then(Value::as_bool) != Some(true) {
-			println!(
+			out!(
 				"{name}: offline ({})",
 				record
 					.get("error")
@@ -895,7 +984,7 @@ fn print_pulses(records: &[Value]) {
 			continue;
 		}
 		if let Some(error) = record.get("error").and_then(Value::as_str) {
-			println!("{name}: failed ({error})");
+			out!("{name}: failed ({error})");
 			continue;
 		}
 		let completed = record
@@ -911,22 +1000,13 @@ fn print_pulses(records: &[Value]) {
 			.get("pulse_duration_ms")
 			.and_then(Value::as_u64)
 			.unwrap_or(0);
-		let requested = record
-			.get("pulse_requested_duration_ms")
-			.and_then(Value::as_u64)
-			.unwrap_or(duration);
-		let duration_label = if requested == duration {
-			format!("{duration} ms")
-		} else {
-			format!("{duration} ms (requested {requested} ms)")
-		};
-		println!(
-			"{name}: {verb} {}× over {} (peak {}%, low {}%){}; final {}, brightness {}%, warmth {}%",
+		out!(
+			"{name}: {verb} {}× over {} ms (peak {}%, low {}%){}; final {}, brightness {}%, warmth {}%",
 			record
 				.get("pulse_count")
 				.and_then(Value::as_u64)
 				.unwrap_or(0),
-			duration_label,
+			duration,
 			record
 				.get("pulse_value")
 				.and_then(Value::as_u64)
@@ -951,7 +1031,7 @@ fn print_sweeps(records: &[Value]) {
 	for record in records {
 		let name = record.get("name").and_then(Value::as_str).unwrap_or("?");
 		if record.get("reachable").and_then(Value::as_bool) != Some(true) {
-			println!(
+			out!(
 				"{name}: offline ({})",
 				record
 					.get("error")
@@ -961,7 +1041,7 @@ fn print_sweeps(records: &[Value]) {
 			continue;
 		}
 		if let Some(error) = record.get("error").and_then(Value::as_str) {
-			println!("{name}: failed ({error})");
+			out!("{name}: failed ({error})");
 			continue;
 		}
 		let completed = record
@@ -977,7 +1057,7 @@ fn print_sweeps(records: &[Value]) {
 			Some(value) if value > 0 => format!("brightness {value}%"),
 			_ => "brightness unchanged".into(),
 		};
-		println!(
+		out!(
 			"{name}: {verb} {}× over {} ms ({}){}; final {}, brightness {}%, warmth {}%",
 			record
 				.get("sweep_count")
@@ -1022,9 +1102,14 @@ fn print_discovered(devices: &[elopli_core::DiscoveredDevice]) {
 }
 
 fn run_config(args: &ConfigArgs, settings: &Settings) -> Result<u8> {
+	let path = absolute_path(&settings.config_path);
 	match &args.command {
 		ConfigCommand::Path => {
-			println!("{}", settings.config_path.display());
+			if settings.json {
+				print_json(&json!({ "path": path.display().to_string() }));
+			} else {
+				out!("{}", path.display());
+			}
 		}
 		ConfigCommand::Show => {
 			let config = Config::load(settings.config_path.clone())?;
@@ -1037,37 +1122,46 @@ fn run_config(args: &ConfigArgs, settings: &Settings) -> Result<u8> {
 					settings.config_path.display()
 				)));
 			}
-			let config = Config {
-				path: settings.config_path.clone(),
-				devices: Vec::new(),
-			};
+			let mut config = Config::new(settings.config_path.clone());
 			config.save()?;
-			println!("{}", settings.config_path.display());
+			if settings.json {
+				print_json(&json!({
+					"path": path.display().to_string(),
+					"created": true,
+				}));
+			} else {
+				out!("{}", path.display());
+			}
 		}
 	}
 	Ok(0)
 }
 
 fn run_discover(args: &DiscoverArgs, settings: &Settings) -> Result<u8> {
-	if args.wait <= 0.0 || !args.wait.is_finite() {
+	if args.wait <= 0.0 || !args.wait.is_finite() || args.wait > 3600.0 {
 		return Err(ElopliError::InvalidValue(
-			"--wait must be greater than zero".into(),
+			"--wait must be between 0 and 3600 seconds".into(),
 		));
 	}
-	let found = discover(Duration::from_secs_f64(args.wait))?;
+	let timeout = Duration::try_from_secs_f64(args.wait)
+		.map_err(|_| ElopliError::InvalidValue("--wait is out of range".into()))?;
+	let found = discover(timeout)?;
 	if args.write {
 		let mut config = Config::load(settings.config_path.clone())?;
 		let mut added = 0;
 		for device in &found {
-			let host = device
-				.address
-				.map(|address| address.to_string())
-				.unwrap_or_else(|| device.hostname.clone());
+			let Some(address) = device.address else {
+				eprintln!(
+					"Skipped {}: no IPv4 address was advertised",
+					device.instance
+				);
+				continue;
+			};
 			if config.add(Device {
 				name: device.instance.clone(),
-				host,
+				host: address.to_string(),
 				port: device.port,
-			}) {
+			})? {
 				added += 1;
 			}
 		}
@@ -1118,13 +1212,15 @@ fn run(cli: Cli) -> Result<u8> {
 			Ok(0)
 		}
 		Command::Rename(args) => {
-			let device = config.find(&args.device)?;
+			let device = config
+				.find(&args.device)
+				.unwrap_or_else(|_| Device::new(args.device.clone(), args.device.clone()));
 			let name = validate_display_name(&args.new_name)?;
-			let record = rename_record(&device, &settings, &name);
+			let record = rename_record(&device, &settings, &name, args.wait.wait);
 			if settings.json {
 				print_json(&Value::Array(vec![record.clone()]));
 			} else {
-				print_renames(&[record.clone()]);
+				print_renames(std::slice::from_ref(&record));
 			}
 			Ok(exit_code(&[record]))
 		}
@@ -1295,6 +1391,11 @@ fn run(cli: Cli) -> Result<u8> {
 					"--warmth, --kelvin, and --temperature cannot be used together".into(),
 				));
 			}
+			let duration_ms = args
+				.duration
+				.as_deref()
+				.map(|value| duration_ms(value, 1, MAX_FADE_MS, "transition"))
+				.transpose()?;
 			let update = Update {
 				on: if args.on {
 					Some(true)
@@ -1313,11 +1414,11 @@ fn run(cli: Cli) -> Result<u8> {
 				} else {
 					None
 				},
-				duration_ms: args.duration_ms,
+				duration_ms,
 			};
-			if update.is_empty() {
+			if update.on.is_none() && update.brightness.is_none() && update.temperature.is_none() {
 				return Err(ElopliError::InvalidValue(
-					"set needs at least one property".into(),
+					"set needs at least one property besides --duration".into(),
 				));
 			}
 			let devices = resolve_devices(&args.targets, &config, false)?;
@@ -1393,10 +1494,11 @@ fn run(cli: Cli) -> Result<u8> {
 		Command::Pulse(args) => {
 			let prompt_config = PulseConfig {
 				count: args.count,
-				duration_ms: args.duration,
+				duration_ms: duration_ms(&args.duration, 50, 3_600_000, "pulse")?,
 				value: args.value,
 				low: args.low,
 			};
+			prompt_config.validate()?;
 			let devices = resolve_devices(&args.targets, &config, false)?;
 			let records = parallel(&devices, |device| {
 				pulse_record(device, &settings, prompt_config)
@@ -1411,9 +1513,10 @@ fn run(cli: Cli) -> Result<u8> {
 		Command::Sweep(args) => {
 			let sweep_config = SweepConfig {
 				count: args.count,
-				duration_ms: args.duration,
-				brightness: (args.brightness > 0).then_some(args.brightness),
+				duration_ms: duration_ms(&args.duration, 100, 3_600_000, "sweep")?,
+				brightness: (args.brightness >= 2).then_some(args.brightness),
 			};
+			sweep_config.validate()?;
 			let devices = resolve_devices(&args.targets, &config, false)?;
 			let records = parallel(&devices, |device| {
 				sweep_record(device, &settings, sweep_config)
@@ -1433,16 +1536,12 @@ fn run(cli: Cli) -> Result<u8> {
 			} else {
 				for record in &records {
 					let name = record.get("name").and_then(Value::as_str).unwrap_or("?");
-					if record.get("reachable").and_then(Value::as_bool) == Some(true) {
-						println!("{name}: identified");
+					if let Some(error) = record.get("error").and_then(Value::as_str) {
+						out!("{name}: failed ({error})");
+					} else if record.get("reachable").and_then(Value::as_bool) == Some(true) {
+						out!("{name}: identified");
 					} else {
-						println!(
-							"{name}: offline ({})",
-							record
-								.get("error")
-								.and_then(Value::as_str)
-								.unwrap_or("unreachable")
-						);
+						out!("{name}: offline");
 					}
 				}
 			}
@@ -1464,15 +1563,25 @@ fn run(cli: Cli) -> Result<u8> {
 
 fn main() -> ExitCode {
 	let cli = Cli::parse();
+	let json = cli.json;
 	match run(cli) {
 		Ok(code) => ExitCode::from(code),
-		Err(error @ (ElopliError::Config(_) | ElopliError::InvalidValue(_))) => {
-			eprintln!("elopli: {error}");
-			ExitCode::from(2)
-		}
 		Err(error) => {
-			eprintln!("elopli: {error}");
-			ExitCode::from(1)
+			let code = match error {
+				ElopliError::Config(_) | ElopliError::InvalidValue(_) => 2,
+				_ => 1,
+			};
+			if json {
+				print_json(&json!({
+					"error": {
+						"kind": error.kind(),
+						"message": error.to_string(),
+					}
+				}));
+			} else {
+				eprintln!("elopli: {error}");
+			}
+			ExitCode::from(code)
 		}
 	}
 }

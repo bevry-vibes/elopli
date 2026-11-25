@@ -236,19 +236,34 @@ pub fn parse_state(payload: &Value) -> Result<LightState> {
 		.and_then(Value::as_array)
 		.and_then(|lights| lights.first())
 		.ok_or_else(|| ElopliError::InvalidResponse("response contains no light state".into()))?;
-	let on = light.get("on").and_then(Value::as_u64).unwrap_or(0) != 0;
+	let on = match light.get("on").and_then(Value::as_u64) {
+		Some(0) => false,
+		Some(1) => true,
+		Some(_) => {
+			return Err(ElopliError::InvalidResponse(
+				"light state has an invalid power value".into(),
+			));
+		}
+		None => {
+			return Err(ElopliError::InvalidResponse(
+				"light state has no power value".into(),
+			));
+		}
+	};
 	let brightness = light
 		.get("brightness")
 		.and_then(Value::as_u64)
-		.unwrap_or(0)
-		.try_into()
-		.map_err(|_| ElopliError::InvalidResponse("brightness is out of range".into()))?;
+		.filter(|value| *value <= 100)
+		.ok_or_else(|| {
+			ElopliError::InvalidResponse("light state has an invalid brightness".into())
+		})? as u8;
 	let temperature = light
 		.get("temperature")
 		.and_then(Value::as_u64)
-		.unwrap_or(143)
-		.try_into()
-		.map_err(|_| ElopliError::InvalidResponse("temperature is out of range".into()))?;
+		.filter(|value| (143..=344).contains(value))
+		.ok_or_else(|| {
+			ElopliError::InvalidResponse("light state has an invalid temperature".into())
+		})? as u16;
 	Ok(LightState {
 		on,
 		brightness,
@@ -291,21 +306,22 @@ pub fn parse_power_on_settings(payload: &Value) -> Result<PowerOnSettings> {
 	let behavior_value = payload
 		.get("powerOnBehavior")
 		.and_then(Value::as_u64)
+		.filter(|value| *value <= u64::from(u8::MAX))
 		.ok_or_else(|| ElopliError::InvalidResponse("missing powerOnBehavior".into()))?;
 	let behavior = PowerOnBehavior::from_u8(behavior_value as u8)
 		.ok_or_else(|| ElopliError::InvalidResponse("unknown powerOnBehavior".into()))?;
 	let brightness = payload
 		.get("powerOnBrightness")
 		.and_then(Value::as_u64)
-		.unwrap_or(0)
-		.try_into()
-		.map_err(|_| ElopliError::InvalidResponse("powerOnBrightness is out of range".into()))?;
+		.filter(|value| *value <= 100)
+		.ok_or_else(|| ElopliError::InvalidResponse("powerOnBrightness is out of range".into()))?
+		as u8;
 	let temperature = payload
 		.get("powerOnTemperature")
 		.and_then(Value::as_u64)
-		.unwrap_or(143)
-		.try_into()
-		.map_err(|_| ElopliError::InvalidResponse("powerOnTemperature is out of range".into()))?;
+		.filter(|value| (143..=344).contains(value))
+		.ok_or_else(|| ElopliError::InvalidResponse("powerOnTemperature is out of range".into()))?
+		as u16;
 	Ok(PowerOnSettings {
 		behavior,
 		brightness,
@@ -325,4 +341,47 @@ pub fn parse_error_messages(payload: &Value) -> Vec<String> {
 				.collect()
 		})
 		.unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn state_requires_every_field() {
+		for payload in [
+			json!({"lights": [{"brightness": 50, "temperature": 267}]}),
+			json!({"lights": [{"on": 1, "temperature": 267}]}),
+			json!({"lights": [{"on": 1, "brightness": 50}]}),
+		] {
+			assert!(parse_state(&payload).is_err());
+		}
+	}
+
+	#[test]
+	fn state_rejects_invalid_values() {
+		assert!(
+			parse_state(&json!({"lights": [{"on": 2, "brightness": 50, "temperature": 267}]}))
+				.is_err()
+		);
+		assert!(
+			parse_state(&json!({"lights": [{"on": 1, "brightness": 101, "temperature": 267}]}))
+				.is_err()
+		);
+		assert!(
+			parse_state(&json!({"lights": [{"on": 1, "brightness": 50, "temperature": 0}]}))
+				.is_err()
+		);
+	}
+
+	#[test]
+	fn power_on_requires_every_field() {
+		assert!(parse_power_on_settings(&json!({"powerOnBehavior": 1})).is_err());
+		assert!(
+			parse_power_on_settings(
+				&json!({"powerOnBehavior": 3, "powerOnBrightness": 20, "powerOnTemperature": 213})
+			)
+			.is_err()
+		);
+	}
 }

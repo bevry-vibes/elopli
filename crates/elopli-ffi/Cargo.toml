@@ -2,6 +2,7 @@
 name = "elopli-ffi"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
@@ -12,6 +13,9 @@ name = "elopli_ffi"
 crate-type = ["cdylib", "staticlib", "lib"]
 
 [dependencies]
-elopli-core = { path = "../elopli-core" }
+elopli-core = { version = "0.1.0", path = "../elopli-core" }
 uniffi.workspace = true
 thiserror.workspace = true
+
+[lints]
+workspace = true
