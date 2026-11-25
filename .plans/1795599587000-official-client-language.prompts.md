@@ -78,3 +78,15 @@ okay, just do appimage for now, shelf flatpak for future
 for code signing, what are the costs for signing?
 
 appincidactor on gnome is acceptible, we already use it in aural-keyboard or whatever right?
+
+## follow-up prompt 4
+
+let's do the first run with windows-rs/windows-reactor, linux with gtk4-rs, macos with swiftui 
+and shelf c# winui 3, vala, appkit for fallbacks if unsattisfied
+search for resources and best-practices that will help beforehand
+
+what is inno setup installer? how does aural-keyboard currently do it?
+
+shelf anything that isn't self-signing for later, inclding shelving signpath for now (as signpath doesn't seem for hobby projects like this)
+
+do not commence implementation yet

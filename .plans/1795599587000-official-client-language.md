@@ -4,6 +4,19 @@ Companion: [1795599587000-official-client-language.prompts.md](./1795599587000-o
 
 # Official client: native per-platform UI with a Rust core
 
+## status
+
+Decisions:
+
+- Shared core and CLI: Rust.
+- macOS UI: SwiftUI.
+- Windows UI: Rust `windows-reactor` first.
+- Linux UI: Rust `gtk4-rs`.
+- Fallbacks, shelved: C# WinUI 3, Vala, AppKit.
+- Packaging: AppImage via Soar now. Flatpak later.
+- Code signing: self-signing only. All paid and OSS signing programmes are shelved.
+- Implementation has not started.
+
 ## context
 
 Elgato Control Center removed its Apple Shortcuts actions.
@@ -12,25 +25,27 @@ The API is cracked and verified. See [docs/api.md](../docs/api.md).
 A Python CLI proves the interface and controls all three lights now.
 
 The official client must run on macOS, Linux, and Windows.
-It must be a native app, not a webview.
+It must be native, with no webview.
 It must be pinned to the menu bar or system tray.
 It must have no Dock icon and no draggable window.
-It must have a card interface for each light.
+It must show a card for each light.
 It must provide native Apple Shortcuts actions on macOS.
+
+The UI is simple: a card grid, a settings sheet, and a tray menu.
+Three native UIs are acceptable.
+The project is also a learning exercise for native cross-platform work.
 
 ## decision
 
-Use a shared Rust core with native UIs on each platform:
-
-| Platform | UI | Language |
-| --- | --- | --- |
-| Core and CLI | `keylight-core` and `keylight` | Rust |
-| macOS | SwiftUI menu-bar app with App Intents | Swift |
-| Windows | WinUI 3 app | Rust `windows-reactor` (spike), or C# WinUI 3 (fallback) |
-| Fedora | GTK 4 + libadwaita app | Rust `gtk4-rs` |
-
-The UI is simple: a card grid, a settings sheet, and a tray menu.
-Three native UIs are acceptable, and the project is a learning exercise for native cross-platform work.
+| Platform | UI | Language | Status |
+| --- | --- | --- | --- |
+| Core and CLI | `keylight-core` and `keylight` | Rust | Primary |
+| macOS | SwiftUI `MenuBarExtra` + App Intents | Swift | Primary |
+| Windows | WinUI 3 through `windows-reactor` | Rust | Primary, spike first |
+| Fedora | GTK 4 + libadwaita through `gtk4-rs` | Rust | Primary |
+| Windows fallback | WinUI 3 | C# | Shelved |
+| Fedora fallback | GTK 4 + libadwaita | Vala | Shelved |
+| macOS fallback | AppKit `NSStatusItem` + `NSPopover` | Swift | Shelved |
 
 ## requirements
 
@@ -53,9 +68,9 @@ All items are must, except Apple notarisation.
 | Non-interactive CLI | Must | Shortcuts and scripts call it |
 | JSON output | Must | Shortcuts parses the result |
 | mDNS discovery | Must | Avoid a manual IP list |
-| Ad-hoc macOS signing | Must | Free |
-| Apple notarisation | Could | Paid, so not required |
-| Paid Windows signing | Could | Free OSS option exists |
+| Self-signing only | Must | Free |
+| Apple notarisation | Shelved | Paid |
+| Paid Windows signing | Shelved | Not free |
 
 ## the WiFi data source
 
@@ -97,154 +112,196 @@ If the accessory request fails, show a disconnected icon and the last known valu
 The API does not return the IP address.
 The client knows it from the registry or mDNS.
 
-## Windows choices
+## research and best practices
 
-### C# WinUI 3
+### Rust core
 
-This is the most mature and best-supported native Windows UI.
+- Use blocking HTTP for the core. It is simpler to expose over FFI.
+  - `ureq` for HTTP.
+  - `serde` and `serde_json` for JSON.
+  - `mdns-sd` for discovery.
+  - `thiserror` for typed errors.
+- Keep one `snapshot()` call that fetches the light state and accessory info together.
+- Validate brightness, mired, display name, and power-on values in the core.
+- Keep the core free of UI and platform code.
+- Expose a C ABI through `keylight-ffi`, or generate Swift bindings with UniFFI.
+- Use `tracing` or `log` with a file sink for diagnostics.
 
-Strengths:
+Resources:
 
-- Stable WinUI 3 and Windows App SDK.
-- Best tooling in Visual Studio.
-- Native controls, accessibility, and MSIX or unpackaged deployment.
-- Large ecosystem.
+- `ureq`: <https://docs.rs/ureq>
+- `mdns-sd`: <https://docs.rs/mdns-sd>
+- `thiserror`: <https://docs.rs/thiserror>
+- Rust API guidelines: <https://rust-lang.github.io/api-guidelines/>
 
-Weaknesses:
+### Windows Reactor
 
-- Adds C# and .NET to the project.
-- WinUI 3 has no built-in tray icon. Use `H.NotifyIcon` or Win32 `Shell_NotifyIcon`.
-- A borderless popover near the tray needs `Shell_NotifyIconGetRect`.
+Reactor is a Microsoft-backed declarative WinUI 3 library for Rust.
+It is a preview. The current version is 0.101.
 
-This is the safe choice.
+Useful pieces:
 
-### Rust `windows-reactor`
+- `ApplicationView` declares windows and notification icons.
+- `NotifyIcon::on_activate` gives a `ScreenPoint` with the tray click position.
+- `WindowVisuals` sets client size, initial position, always-on-top, and min/max.
+- `Tooltip` and `TooltipExt` cover the WiFi hover.
+- `windows-reactor-setup` stages the Windows App Runtime for a self-contained app.
+- The `notifyicon` sample is the starting point for the tray.
+- The `self_contained` sample is the starting point for distribution.
 
-`windows-reactor` is a Microsoft-backed declarative WinUI 3 library for Rust.
-It is part of `windows-rs`.
-The current version is 0.101, and it is a preview.
+Known risk:
 
-Strengths:
+- `WindowVisuals` does not expose borderless mode, resizability, taskbar visibility, or title-bar visibility.
+- Reactor does not expose the window handle in its public API.
+- A no-title-bar, no-taskbar, no-drag popover may need a Reactor change or Win32 interop.
 
-- Native WinUI 3 controls.
-- Declarative component and view model, similar to React.
-- Typed messages and state.
-- Built-in `ApplicationView::notify_icon` tray icon.
-- `Tooltip` support for the WiFi hover.
-- Self-contained deployment with `windows-reactor-setup`.
-- Keeps the Windows UI in Rust, so the core and UI share one language.
-- Good learning value for native Rust on Windows.
+Spike checklist before the Windows UI:
 
-Weaknesses:
+1. Create a tray icon with a tooltip and a menu.
+2. Receive the tray click position from `on_activate`.
+3. Open a window near that position.
+4. Remove the title bar and the resize frame.
+5. Disable dragging.
+6. Hide the window from the taskbar and Alt-Tab.
+7. Dismiss the window when it loses focus.
+8. Show three cards with brightness, warmth, and a WiFi tooltip.
+9. Build a self-contained unpackaged app.
+10. Test on Windows 10 and Windows 11.
+11. Check for GDI or handle leaks across repeated open and close.
 
-- Preview. Public APIs may change.
-- New ecosystem and fewer examples.
-- Some rough edges are still open, such as GDI handle leaks in certain window cases.
-- Requires the Windows App Runtime for framework-dependent builds.
+If items 3–7 fail, fall back to C# WinUI 3.
+C# exposes `AppWindow`, `OverlappedPresenter`, `ShowInSwitchers`, `ExtendsContentIntoTitleBar`, and the window handle.
 
-This is the most interesting choice for a Rust learning repo.
-Spike it before committing:
+Resources:
 
-1. Build a window with a card and a tray icon.
-2. Show a tooltip on hover.
-3. Test unpackaged self-contained deployment.
-4. Test Windows 10 and Windows 11.
+- Reactor readme: <https://github.com/microsoft/windows-rs/tree/master/crates/libs/reactor>
+- Reactor crate: <https://docs.rs/windows-reactor>
+- Reactor samples: <https://github.com/microsoft/windows-rs/tree/master/crates/samples/reactor>
+- Notify icon sample: <https://github.com/microsoft/windows-rs/tree/master/crates/samples/reactor/notifyicon>
+- Self-contained sample: <https://github.com/microsoft/windows-rs/tree/master/crates/samples/reactor/self_contained>
+- Window placement sample: <https://github.com/microsoft/windows-rs/tree/master/crates/samples/reactor/window-placement-registry>
+- Runtime setup: <https://docs.rs/windows-reactor-setup>
+- Unpackaged WinUI 3: <https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/unpackage-winui-app>
+- `Shell_NotifyIcon`: <https://learn.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-shell_notifyiconw>
+- `Shell_NotifyIconGetRect`: <https://learn.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-shell_notifyicongetrect>
+- Extended window styles: <https://learn.microsoft.com/en-us/windows/win32/winmsg/extended-window-styles>
+- Open reactor leak report: <https://github.com/microsoft/windows-rs/issues/5287>
 
-If the spike passes, use it.
-If it fails, fall back to C# WinUI 3.
+### Linux GTK 4
 
-### C++/WinRT
+GNOME's documentation says C is the default platform language.
+Applications can use C, C++, Java, JavaScript, Perl, Python, Rust, Vala, or C#.
 
-Stable, native, and no .NET.
-It is the best choice if C# is unacceptable and Rust is not ready.
-It is more verbose than C#.
-The tray still needs Win32 `Shell_NotifyIcon`.
+For this project, use Rust with `gtk4-rs` and `libadwaita`.
 
-### Rust Win32 or native-windows-gui
+Useful pieces:
 
-The `windows` crate gives direct Win32 access.
-`native-windows-gui` wraps Win32 controls.
-Both are stable and native, but they are low-level.
-They are not WinUI 3.
+- `gtk::Window::set_decorated(false)` for no title bar.
+- `gtk::Window::set_resizable(false)` for no resize.
+- `gtk::Window::set_skip_taskbar_hint(true)` for no taskbar entry.
+- `gtk::Window::set_keep_above(true)` for a popover-like window.
+- `ksni` for a StatusNotifierItem tray icon.
+- `ksni` activation gives the click position for window placement.
+- `libadwaita` for GNOME-native cards and settings.
+- GNOME HIG for layout and spacing.
 
-### Windows recommendation
+AppIndicator on GNOME is accepted.
+`aural-keyboard` already requires the extension:
 
-Spike `windows-reactor` first.
-It keeps the Windows UI in Rust and has a built-in tray.
-Fall back to C# WinUI 3 if the spike is unstable.
+```sh
+sudo dnf install gnome-shell-extension-appindicator
+gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com
+```
 
-## Fedora choices
+Resources:
 
-GNOME's documentation says the platform libraries are written in C and use GObject-Introspection.
-C is the default platform language.
-Applications can use any language with GNOME bindings.
+- gtk4-rs book: <https://gtk-rs.org/gtk4-rs/stable/latest/book/>
+- gtk4 docs: <https://docs.rs/gtk4>
+- libadwaita docs: <https://docs.rs/libadwaita>
+- GNOME HIG: <https://developer.gnome.org/hig/>
+- GNOME languages: <https://developer.gnome.org/documentation/introduction/languages.html>
+- `ksni`: <https://docs.rs/ksni>
+- AppIndicator extension: <https://extensions.gnome.org/extension/615/appindicator-support/>
+- linuxdeploy GTK plugin: <https://github.com/linuxdeploy/linuxdeploy-plugin-gtk>
+- AppImage tooling: <https://github.com/AppImage/appimagetool>
+- AppImage docs: <https://docs.appimage.org/>
+- Soar: <https://github.com/pkgforge/soar>
+- Soar packages: <https://docs.pkgforge.dev/repositories/soarpkgs>
 
-| Language | Project | Notes |
-| --- | --- | --- |
-| C | GTK, GLib | Reference language. Recommended for libraries. Verbose for apps. |
-| Vala | Vala | GNOME's own language. GObject-friendly. Compiles to C. Used by Calculator, Boxes, Clocks, Gitg. |
-| Rust | gtk-rs | Supported binding. Memory-safe. Used by Authenticator, Shortwave, Video Trimmer. |
-| Python | PyGObject | Fast development. Runtime dependency. Used by Music, Lollypop, Pitivi. |
-| JavaScript | GJS | Used by Maps, Polari, Sound Recorder. |
-| C++ | gtkmm | Mature. Used by Gnote, GParted, Inkscape. |
-| C# | Gir.core | Used by Denaro, Parabolic, Tagger. |
-| Java | Java-GI | Works with OpenJDK 25 or later. |
-| Perl | Glib::Object::Introspection | Supported binding. |
+### macOS SwiftUI
 
-There is no single recommended application language.
-GNOME recommends C for libraries, because it gives the widest binding support.
+Use `MenuBarExtra` with `.menuBarExtraStyle(.window)`.
+Set `LSUIElement=true` to hide the Dock icon.
+The menu-bar window is a popover, not a draggable window.
+Add App Intents in the same app target.
+Link the Rust core as a static library.
 
-For this project, use **Rust with gtk4-rs and libadwaita**.
+Useful pieces:
 
-Why:
+- `MenuBarExtra` and `.window` style for the popover.
+- `LSUIElement` for no Dock icon.
+- `AppIntent` and `AppShortcutsProvider` for Shortcuts actions.
+- `SMAppService.mainApp.register()` for launch at login.
+- `NSLocalNetworkUsageDescription` for the local network prompt.
+- `NSBonjourServices` with `_elg._tcp` for mDNS.
+- UniFFI or a manual C ABI for the Rust core.
+- An Xcode app target, not a bare SwiftPM executable, for App Intents and the Info.plist.
 
-- It links `keylight-core` directly. No FFI or sidecar.
-- It is memory-safe and compiled.
-- It is a supported GNOME binding with real GNOME apps.
-- It keeps the Linux UI and the core in one language.
-- The UI is simple, so Rust's verbosity is acceptable.
+Resources:
 
-Vala would be the most idiomatic GNOME choice, but it adds a language and an FFI layer.
-Python would be the fastest to write, but it adds a runtime and FFI.
-C would be the reference choice, but it is more work and less safe.
+- `MenuBarExtra`: <https://developer.apple.com/documentation/swiftui/menubarextra>
+- Window style: <https://developer.apple.com/documentation/swiftui/menubarextrastyle/window>
+- `LSUIElement`: <https://developer.apple.com/documentation/bundleresources/information-property-list/lsuielement>
+- App Intents: <https://developer.apple.com/documentation/appintents>
+- `AppShortcutsProvider`: <https://developer.apple.com/documentation/appintents/appshortcutsprovider>
+- Local network privacy: <https://developer.apple.com/documentation/technotes/tn3179-understanding-local-network-privacy>
+- `NSBonjourServices`: <https://developer.apple.com/documentation/bundleresources/information-property-list/nsbonjureservices>
+- `SMAppService`: <https://developer.apple.com/documentation/servicemanagement/smappservice>
+- UniFFI: <https://mozilla.github.io/uniffi-rs/>
+- swift-bridge: <https://chinedufn.github.io/swift-bridge/>
+- cbindgen: <https://github.com/mozilla/cbindgen>
 
-## macOS choices
+### Testing and CI
 
-Use SwiftUI with `MenuBarExtra` and `.menuBarExtraStyle(.window)`.
+- Keep the Python CLI as the protocol oracle.
+- Keep the fake HTTP device in `tests/fake_device.py`.
+- Add Rust integration tests against the same fake device.
+- Add UI smoke tests per platform.
+- Use GitHub Actions with `macos-latest`, `windows-latest`, and `ubuntu-22.04`.
+- Pin the Rust toolchain in `rust-toolchain.toml`.
+- Build the Swift app on macOS only.
+- Build the AppImage on Ubuntu or Fedora.
+- Publish checksums with every artifact.
 
-- `LSUIElement=true` hides the Dock icon.
-- `MenuBarExtra` pins the interface to the menu bar.
-- The window is a popover, not a draggable window.
-- App Intents are part of the app. No helper is needed.
-- The app links `keylight-ffi` as a static library.
+## Windows packaging and Inno Setup
 
-AppKit `NSStatusItem` plus `NSPopover` is the fallback if `MenuBarExtra` cannot express the popover.
+Inno Setup is a free Windows installer generator.
+It creates a single `setup.exe` with a wizard, Start Menu shortcuts, an uninstaller, and an Add/Remove Programs entry.
+It is not a package format and not a runtime.
+It can install an unpackaged, self-contained WinUI 3 app.
+It can be signed later if a certificate appears.
 
-## why not a shared UI
+`aural-keyboard` does not use Inno Setup.
+Its Windows release is a ZIP plus a SHA-256 file.
+The `aural system install` command copies the binary, registers autostart, and provides uninstall.
+The README documents this pattern.
 
-### Kotlin Multiplatform
+Options for this project:
 
-Compose Multiplatform is a native binary, but it is not native widgets.
-It renders with Skia and Material.
-It cannot register App Intents, so macOS still needs a Swift helper.
-Hiding the Dock icon and anchoring the popover need JVM/AWT workarounds.
-It adds a JVM runtime.
-It does not meet the native requirement.
+1. ZIP plus `keylight install` and `keylight uninstall`. Follows aural-keyboard. No installer tooling.
+2. Inno Setup installer. Familiar wizard and Add/Remove Programs entry. More work.
+3. MSIX. Avoid, because unsigned MSIX needs sideloading or developer mode.
 
-### SwiftCrossUI
+Recommendation: start with option 1.
+Add Inno Setup later if a GUI installer is needed.
+The app is a tray app, so the ZIP plus self-install is acceptable for the first release.
 
-SwiftCrossUI is active and capable.
-It has hover, tooltips, and card layouts.
-But it has no tray API, and it is pre-1.0.
-Its LLM policy prevents an upstream tray contribution.
-A local tray shim costs 1–2 days on macOS, 3–5 days on Windows, and 5–10 days on Fedora.
-That is a project, not a patch.
-It does not meet the tray requirement without significant extra work.
+Resources:
 
-### Tauri and web
-
-Rejected by the user.
-No webview, no web UI.
+- Inno Setup: <https://jrsoftware.org/isinfo.php>
+- Inno Setup help: <https://jrsoftware.org/ishelp/>
+- aural-keyboard release workflow: <https://github.com/bevry-vibes/aural-keyboard/blob/main/.github/workflows/release.yml>
+- aural-keyboard macOS packaging: <https://github.com/bevry-vibes/aural-keyboard/blob/main/scripts/package-app.sh>
 
 ## the menu-bar-pinned interface
 
@@ -258,36 +315,37 @@ App Intents for Shortcuts.
 ### Windows
 
 `windows-reactor` `ApplicationView::notify_icon` for the tray.
-A borderless window positioned with `Shell_NotifyIconGetRect` if Reactor does not expose the anchor.
-Hide the window from the taskbar and Alt-Tab.
-No title bar, no resize, no drag.
+`NotifyIcon::on_activate` gives the click position.
+`WindowVisuals::initial_position` places the window near the tray.
+The spike must confirm borderless mode and taskbar hiding.
 
-If C# is used, `H.NotifyIcon` plus a borderless `AppWindow`.
+If Reactor cannot do it, fall back to C# WinUI 3.
+Use `AppWindow`, `OverlappedPresenter`, and `ShowInSwitchers=false`.
+Position with `Shell_NotifyIconGetRect`.
+Dismiss on focus loss.
 
 ### Fedora
 
 GTK 4 window with `skip_taskbar_hint`, `decorated=false`, `resizable=false`.
-A status notifier item through `ksni` or libayatana-appindicator.
-The menu opens the card window.
-GNOME needs the AppIndicator extension.
-`aural-keyboard` already uses this extension, so it is an accepted dependency.
-
-The exact tray icon anchor is not available through the status notifier protocol.
+A StatusNotifierItem through `ksni`.
+`ksni` activation gives the click position.
 Position the window near the top-right of the screen.
-This is the one platform where the pin is approximate.
+GNOME needs the AppIndicator extension.
+`aural-keyboard` already uses it, so it is an accepted dependency.
 
 ## packaging
 
 ### AppImage via Soar, now
 
 Build a GTK 4 AppImage with the required libraries.
-Publish it through Soar.
-Soar supports AppImage and delta updates through zsync.
-This is the fastest path and avoids Flatpak sandbox work.
+Use `linuxdeploy` with the GTK plugin and `appimagetool`.
+Bundle GTK 4, libadwaita, GSettings schemas, icons, and fonts.
+Publish through Soar.
+Soar supports AppImage and zsync delta updates.
 
 ### Flatpak, later
 
-Flatpak is shelved for now.
+Flatpak is shelved.
 When added:
 
 - Use the GNOME runtime.
@@ -301,61 +359,61 @@ When added:
 Use an unpackaged, self-contained build.
 `windows-reactor-setup` stages the Windows App Runtime.
 For C# WinUI 3, set `WindowsPackageType=None` and self-contained deployment.
-Distribute a ZIP or an Inno Setup installer.
-Avoid MSIX, because unsigned MSIX needs sideloading or developer mode.
+Distribute a ZIP with `keylight install`, or an Inno Setup installer later.
 
 ### macOS
 
-Build a `.app` bundle.
+Build an `.app` bundle.
 Ad-hoc sign it with `codesign -s -`.
+For a stable local identity, create a self-signed "KeyLight Code Signing" certificate in the login keychain and sign with it.
 Distribute a DMG or ZIP.
 Gatekeeper warns on downloaded builds.
 Document `xattr -d com.apple.quarantine`.
 
-## code signing costs
+## code signing: self-signing only
 
-| Platform | Option | Cost | Notes |
-| --- | --- | --- | --- |
-| macOS | Ad-hoc signature | Free | No notarisation. Gatekeeper warns. |
-| macOS | Apple Developer Program | $99/year | Needed for Developer ID and notarisation. |
-| Windows | Unsigned | Free | SmartScreen warning. |
-| Windows | Self-signed certificate | Free | Not trusted by other machines. |
-| Windows | OV certificate | $150–$300/year | SmartScreen reputation builds over time. |
-| Windows | EV certificate | $300–$800/year | Hardware token or cloud HSM. |
-| Windows | Azure Trusted Signing | $9.99/month Basic | 5,000 signatures. Eligibility rules apply. |
-| Windows | SignPath Foundation | Free for OSS | OV-level Authenticode. Conditions apply. |
-| Linux | None | Free | Soar uses checksums. Flathub signs its repo. |
+Active:
 
-### SignPath Foundation
+| Platform | Method | Cost |
+| --- | --- | --- |
+| macOS | Ad-hoc `codesign -s -` | Free |
+| macOS | Self-signed "KeyLight Code Signing" identity for stable TCC | Free |
+| Windows | Self-signed certificate for local testing only | Free |
+| Windows | Unsigned public release, SmartScreen warning | Free |
+| Linux | Unsigned AppImage with checksums | Free |
 
-SignPath Foundation provides free code signing for open-source projects.
-The project must have:
+Shelved:
 
-- An OSI-approved license.
-- No commercial dual-licensing.
-- No proprietary components.
-- Active maintenance.
-- A public release.
-- A code signing policy on the project home page.
-- MFA and defined author, reviewer, and approver roles.
-- Reproducible builds from source.
+- SignPath Foundation.
+- Apple Developer Program and notarisation.
+- OV and EV Windows certificates.
+- Azure Trusted Signing.
+- Any paid certificate.
 
-RPL-1.5 is OSI-approved.
-The project meets the license condition.
-Acceptance is discretionary and depends on project reputation.
-Apply after the first public release.
+SignPath requires a released, maintained project with reputation.
+It is not a good fit for a new hobby project.
+Shelf it for later.
 
-If accepted, Windows builds are signed for free.
-Until then, ship unsigned.
+Self-signed Windows certificates are not trusted on other machines.
+They do not remove SmartScreen warnings.
+Do not use them for public releases.
 
-Do not buy a certificate.
-The paid options are listed only for completeness.
+Costs for reference only:
+
+| Platform | Option | Cost |
+| --- | --- | --- |
+| macOS | Apple Developer Program | $99/year |
+| Windows | OV certificate | $150–$300/year |
+| Windows | EV certificate | $300–$800/year |
+| Windows | Azure Trusted Signing | $9.99/month Basic |
+| Windows | SignPath Foundation | Free for OSS, conditions apply |
 
 ## proposed structure
 
 ```text
 elgato-key-light/
   Cargo.toml
+  rust-toolchain.toml
   crates/
     keylight-core/
     keylight/
@@ -364,10 +422,12 @@ elgato-key-light/
     macos/
       KeyLight/
     windows/
-      keylight-winui/       Rust windows-reactor spike
-      keylight-winui-cs/    C# WinUI 3 fallback
+      keylight-winui/       Rust windows-reactor
     linux/
       keylight-gtk/         Rust gtk4-rs
+  packaging/
+    appimage/
+    windows/
   tests/
 ```
 
@@ -382,23 +442,23 @@ elgato-key-light/
 `apps/linux/keylight-gtk` depends on `keylight-core` directly.
 `apps/windows/keylight-winui` depends on `keylight-core` directly.
 `apps/macos/KeyLight` links `keylight-ffi`.
-The C# fallback uses P/Invoke to `keylight-ffi`.
 
 ## phases
 
-1. Port the Python CLI to `keylight-core` and the Rust CLI.
-2. Build the macOS SwiftUI app and App Intents.
-3. Spike `windows-reactor`.
-4. Build the Windows WinUI 3 app, or the C# fallback.
-5. Build the Linux GTK 4 app.
-6. Build the AppImage and publish it through Soar.
-7. Apply to SignPath Foundation after the first release.
-8. Keep the Python CLI as the protocol oracle.
+1. Finish the protocol reference. The Python CLI and [docs/api.md](../docs/api.md) are the source of truth.
+2. Build `keylight-core` and the Rust CLI.
+3. Spike `windows-reactor` against the checklist.
+4. Build the macOS SwiftUI app and App Intents.
+5. Build the Windows app, or the C# fallback.
+6. Build the Linux GTK 4 app.
+7. Build the AppImage and publish it through Soar.
+8. Add self-signing and release automation.
+9. Keep the Python CLI as the protocol oracle.
 
 ## open questions
 
-1. Windows: spike `windows-reactor` first, or go straight to C# WinUI 3?
-2. Linux: Rust gtk4-rs, or Vala for the most idiomatic GNOME app?
-3. macOS: SwiftUI `MenuBarExtra`, or AppKit `NSStatusItem` plus `NSPopover`?
-4. Windows packaging: ZIP, or Inno Setup installer?
-5. Apply to SignPath Foundation now, or after the first public release?
+1. Windows: does the Reactor spike pass the borderless and no-taskbar checklist?
+2. Windows packaging: ZIP plus `keylight install`, or Inno Setup from the start?
+3. macOS: SwiftUI `MenuBarExtra`, or AppKit `NSStatusItem` plus `NSPopover` if the popover needs more control?
+4. Linux: `ksni`, or libayatana-appindicator directly?
+5. Rust FFI: UniFFI, swift-bridge, or a manual C ABI with cbindgen?
