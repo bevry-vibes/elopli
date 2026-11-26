@@ -146,12 +146,42 @@ impl HttpTransport for NativeTransport {
 
 static CURL_AVAILABLE: OnceLock<bool> = OnceLock::new();
 
+/// Build a curl command that never opens a console window on Windows. Both
+/// the availability probe and the request path use this so a tray app does
+/// not flash a console on its first network call.
+fn curl_command() -> Command {
+	let mut command = Command::new("curl");
+	#[cfg(windows)]
+	{
+		use std::os::windows::process::CommandExt;
+		const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+		command.creation_flags(CREATE_NO_WINDOW);
+	}
+	command
+}
+
+fn parse_curl_response(stdout: &[u8]) -> Result<HttpResponse, TransportError> {
+	let index = stdout
+		.iter()
+		.rposition(|byte| *byte == b'\n')
+		.ok_or_else(|| TransportError::protocol("curl returned an invalid response"))?;
+	let (head, tail) = stdout.split_at(index);
+	let status = std::str::from_utf8(&tail[1..])
+		.ok()
+		.and_then(|value| value.trim().parse::<u16>().ok())
+		.ok_or_else(|| TransportError::protocol("curl returned an invalid status"))?;
+	Ok(HttpResponse {
+		status,
+		body: head.to_vec(),
+	})
+}
+
 pub struct CurlTransport;
 
 impl CurlTransport {
 	pub fn available() -> bool {
 		*CURL_AVAILABLE.get_or_init(|| {
-			Command::new("curl")
+			curl_command()
 				.arg("--version")
 				.stdout(Stdio::null())
 				.stderr(Stdio::null())
@@ -171,7 +201,7 @@ impl HttpTransport for CurlTransport {
 		timeout: Duration,
 	) -> Result<HttpResponse, TransportError> {
 		let max_time = timeout.as_secs_f64().max(0.001);
-		let mut command = Command::new("curl");
+		let mut command = curl_command();
 		command.args([
 			"-q",
 			"--noproxy",
@@ -190,12 +220,6 @@ impl HttpTransport for CurlTransport {
 		]);
 		if body.is_some() {
 			command.args(["--data-binary", "@-"]);
-		}
-		#[cfg(windows)]
-		{
-			use std::os::windows::process::CommandExt;
-			const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-			command.creation_flags(CREATE_NO_WINDOW);
 		}
 		command
 			.stdin(Stdio::piped())
@@ -226,20 +250,7 @@ impl HttpTransport for CurlTransport {
 				message
 			}));
 		}
-		let index = output
-			.stdout
-			.iter()
-			.rposition(|byte| *byte == b'\n')
-			.ok_or_else(|| TransportError::protocol("curl returned an invalid response"))?;
-		let (head, tail) = output.stdout.split_at(index);
-		let status = std::str::from_utf8(&tail[1..])
-			.ok()
-			.and_then(|value| value.trim().parse::<u16>().ok())
-			.ok_or_else(|| TransportError::protocol("curl returned an invalid status"))?;
-		Ok(HttpResponse {
-			status,
-			body: head.to_vec(),
-		})
+		parse_curl_response(&output.stdout)
 	}
 }
 
@@ -339,5 +350,36 @@ pub fn build_transport(mode: TransportMode) -> Arc<dyn HttpTransport + Send + Sy
 		TransportMode::Curl => CURL_TRANSPORT
 			.get_or_init(|| Arc::new(CurlTransport))
 			.clone(),
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn parses_a_curl_response_and_status() {
+		let response = parse_curl_response(b"{\"ok\":true}\n200").unwrap();
+		assert_eq!(response.status, 200);
+		assert_eq!(response.body, b"{\"ok\":true}");
+	}
+
+	#[test]
+	fn parses_an_empty_curl_body() {
+		let response = parse_curl_response(b"\n204").unwrap();
+		assert_eq!(response.status, 204);
+		assert!(response.body.is_empty());
+	}
+
+	#[test]
+	fn rejects_a_curl_response_without_a_status() {
+		assert!(parse_curl_response(b"no separator").is_err());
+		assert!(parse_curl_response(b"body\nnot-a-status").is_err());
+	}
+
+	#[test]
+	fn connection_errors_are_marked_for_fallback() {
+		assert!(TransportError::connection("down").is_connection());
+		assert!(!TransportError::protocol("bad json").is_connection());
 	}
 }
