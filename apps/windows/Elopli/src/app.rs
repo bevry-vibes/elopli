@@ -266,7 +266,6 @@ struct App {
 	wifi_popover: Option<String>,
 	ctrl_down: bool,
 	menu_open: bool,
-	last_click: Option<(String, Instant)>,
 	quitting: bool,
 	no_hide: bool,
 	taskbar_created: u32,
@@ -354,7 +353,6 @@ impl App {
 			wifi_popover: None,
 			ctrl_down: false,
 			menu_open: false,
-			last_click: None,
 			quitting: false,
 			no_hide: std::env::var_os("ELOPLI_NO_HIDE").is_some(),
 			taskbar_created,
@@ -2936,19 +2934,6 @@ impl App {
 					});
 				}
 			}
-			Hit::Card(name) => {
-				let now = Instant::now();
-				if self
-					.last_click
-					.as_ref()
-					.is_some_and(|(last, at)| last == &name && at.elapsed().as_millis() < 400)
-				{
-					self.last_click = None;
-					self.worker.send(Command::Toggle(name));
-				} else {
-					self.last_click = Some((name, now));
-				}
-			}
 			Hit::Power(name) => {
 				let on = self
 					.snapshot
@@ -2982,7 +2967,7 @@ impl App {
 			| Hit::SheetBrightness
 			| Hit::SheetWarmth => self.sheet_action(hit),
 			Hit::DiscoveryAction(id) => self.discovery_action(&id),
-			Hit::Brightness(_) | Hit::Warmth(_) | Hit::Wifi(_) => {}
+			Hit::Card(_) | Hit::Brightness(_) | Hit::Warmth(_) | Hit::Wifi(_) => {}
 		}
 	}
 

@@ -22,7 +22,6 @@ pub enum Command {
 		on: bool,
 	},
 	SetAllOn(bool),
-	Toggle(String),
 	QueueBrightness {
 		name: String,
 		value: u8,
@@ -230,9 +229,6 @@ fn handle(
 		}
 		Command::SetAllOn(on) => {
 			let _ = session.set_all_on(on);
-		}
-		Command::Toggle(name) => {
-			let _ = session.toggle(&name);
 		}
 		Command::QueueBrightness { name, value } => {
 			session.queue_brightness(&name, value);
