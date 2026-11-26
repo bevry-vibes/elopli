@@ -72,7 +72,7 @@ The Windows app uses the native transport only. It never falls back to `curl`, s
 
 1. Fix the Windows blockers and add tests: CLI path assertion, tilde/state-dir expansion, mDNS rank and error surfacing, curl probe flags, registry rename retry, version source.
 2. Add `elopli-session` with link graph, revisions, refresh, live slider queue, discovery rows, and group animations; unit-test the pure logic.
-3. Build `apps/windows/Elopli`: Win32 tray shell, custom Direct2D panel, cards, sliders, links, sheets, discovery, single instance, autostart, config reveal, quit cancellation.
+3. Build `apps/windows/Elopli`: Win32 tray shell, custom GDI+ panel, cards, sliders, links, sheets, discovery, single instance, autostart, config reveal, quit cancellation.
 4. Add icon generation, version resource, AppUserModelID, `scripts/build-windows.ps1`, portable ZIP, checksums, Scoop template, firewall and mDNS guidance.
 5. Update CI, README, DESIGN, CHANGELOG, PRIVACY, AGENTS, and run fmt, clippy, tests, docs, deny, and a Windows build.
 
@@ -80,8 +80,8 @@ The Windows app uses the native transport only. It never falls back to `curl`, s
 
 - `cargo test --workspace --locked` passes on Windows.
 - `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `cargo doc`, and `cargo deny check` pass.
-- `cargo build -p elopli-app --features windows --locked --release` produces `Elopli.exe`.
-- `Elopli.exe --smoke-test` reads the registry and prints per-light state; exit 0 when every light answers.
+- `cargo build -p elopli-app --features windows --locked --release` produces `ElopliApp.exe`.
+- `ElopliApp.exe --smoke-test` reads the registry and prints per-light state; exit 0 when every light answers.
 - The panel opens from the tray, shows one card per light, writes power/brightness/warmth, runs pulse and sweep, discovers lights, links with Ctrl, reorders by drag, and quits without leaving a light mid-animation.
 - `scripts/build-windows.ps1` produces a portable ZIP with the app, CLI, docs, and `SHA256SUMS`.
 
@@ -95,3 +95,6 @@ The Windows app uses the native transport only. It never falls back to `curl`, s
 - Real-hardware mDNS discovery found the Key Light Air and Key Light on the test network, and the discovery sheet rendered the Added/Missing/Add states. The protocol read against those addresses was stopped after it did not return promptly, so a full hardware read/write smoke test remains open.
 - Local checks: workspace tests, fmt, clippy (workspace and Windows app), docs, and `cargo deny check` pass with the GNU toolchain. The CI MSVC job and macOS build were not run from this Windows session.
 - The portable ZIP, Scoop manifest, SHA-256 checksums, screenshots, README, DESIGN, platform plan, privacy notes, third-party notices, and release workflow are in place.
+- The app binary is `ElopliApp.exe`, not `Elopli.exe`: Windows paths are case-insensitive, so an `Elopli.exe` app cannot share a target directory with the `elopli.exe` CLI. Scoop still shows the shortcut as Elopli.
+- Pressing a slider now repaints its preview immediately, and releasing a control activates it only when the release lands on the same hit as the press. Leaving the panel or losing focus commits pending Ctrl-clicks, and a DPI or theme change recreates the rename editor.
+- After the switch to GDI+, the unused Direct2D, DirectWrite, and DXGI features and the redundant direct `windows-numerics` dependency were removed.
