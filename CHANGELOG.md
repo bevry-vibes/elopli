@@ -22,7 +22,8 @@ The format follows Keep a Changelog, and the project uses semantic versioning.
 - A native Linux GTK4 tray panel with cards, custom-drawn sliders, Ctrl-click linking, pulse and sweep sheets, discovery, dark/light themes, single instance, and XDG autostart. The Linux warmth slider reuses the Fluent flame path from the Windows app, under the same MIT attribution.
 - A Linux portable tarball build with a desktop entry, AppStream metadata, hicolor icons, checksums, and an optional AppImage.
 - A Linux app CI job on Ubuntu 24.04.
-- A Wayland-safe `ELOPLI_SCREENSHOT` render hook for panel visual checks.
+- A Wayland-safe `ELOPLI_SCREENSHOT` render hook for panel visual checks and `ELOPLI_SCREENSHOT_SHEET` for each sheet.
+- Committed Linux panel and sheet screenshots in `docs/screenshots/linux-*.png`.
 - Soar installation for the Linux AppImage under the `elopli-app` name, so it does not shadow the `elopli` CLI.
 
 ### Changed
@@ -41,6 +42,8 @@ The format follows Keep a Changelog, and the project uses semantic versioning.
 - The light display name is now authoritative across interfaces: rename updates the registry key and link groups, refresh adopts a name changed elsewhere, and the CLI `rename` and `discover --write` follow the same rule.
 - The Linux header uses the macOS and Windows icon order: Refresh, Discover, All On, All Off, Settings.
 - Linux cards drag by their background; the grip icons are gone. The panel has close-only chrome, WiFi quality colours, a filled Fluent flame, rounded brightness tracks, and a libadwaita-style switch.
+- Linux programmatic switch changes use `GtkSwitch::activate()` so All On/All Off animate; fixed-width value labels and fixed control margins keep the card from reflowing.
+- Linux menu buttons are flat at rest, reserve their hover border width, and use the theme's hover, press, open, and focus states. The header title is x-height centred at 19 px.
 - The Windows panel uses Fluent UI System Icons, double-buffered painting, overlay sheets, field-anchored tooltips, and macOS-style tapered slider tracks and thumbs.
 - mDNS picks a deterministic private IPv4 address and surfaces browse failures.
 - The workspace version in `Cargo.toml` is the single version source for both apps.
@@ -49,6 +52,7 @@ The format follows Keep a Changelog, and the project uses semantic versioning.
 
 - Dragging the Linux warmth slider no longer rewrites the brightness value label.
 - Linux card drops use a string drag payload so the drop targets accept a card drag.
+- Linux menu hover no longer shifts the toggle, and a dismissed menu returns to its flat rest state.
 
 - Duration input no longer crashes on huge or non-finite values.
 - `--timeout` and `--wait` reject unsafe values instead of panicking.

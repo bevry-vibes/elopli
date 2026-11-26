@@ -61,6 +61,10 @@ done
 mkdir -p "$staging/docs"
 install -m644 docs/api.md docs/linux.md docs/platforms.md \
 	"$staging/docs/"
+if [ -d docs/screenshots ]; then
+	mkdir -p "$staging/docs/screenshots"
+	cp docs/screenshots/linux-*.png "$staging/docs/screenshots/"
+fi
 
 desktop-file-validate "$staging/share/applications/com.bevry.elopli.desktop"
 appstreamcli validate --no-net "$staging/share/metainfo/com.bevry.elopli.metainfo.xml"

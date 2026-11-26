@@ -15,8 +15,9 @@ Evergreen design decisions are in [DESIGN.md](DESIGN.md).
 ## Status
 
 macOS and Windows are implemented.
-Linux is in progress: the native GTK4 panel runs on Fedora 45, reads three Key Lights over the shared session layer, and has tray, autostart, single-instance, discovery, and animation support.
-Full Linux interaction testing, packaging installation, and Ubuntu validation remain open.
+Linux is implemented and hardware-tested on Fedora 45 with GNOME Shell 51 on Wayland against one Key Light Air and two Key Lights.
+The panel, linking, sliders, menus, discovery, rename, power-on, pulse, sweep, XDG autostart, and the Soar AppImage install are exercised.
+Ubuntu 24.04, KDE, and the AppImage release publication remain open.
 Accessibility and localization are planned after v1.
 
 Verified on:
@@ -58,6 +59,22 @@ The Windows app is a native tray panel with the same card layout, sheets, and li
 <p>
   <img src="docs/screenshots/windows-pulse.png" width="460" alt="Windows pulse sheet with a count of 3 and a 1.0s duration">
 </p>
+
+The Linux app is a native GTK4 tray panel with the same cards, linked borders, and sheets.
+
+<p>
+  <img src="docs/screenshots/linux-panel.png" width="460" alt="Linux GTK4 panel with three lights, Back and Right linked">
+</p>
+
+<p>
+  <img src="docs/screenshots/linux-pulse.png" width="400" alt="Linux pulse sheet with a count of 3, 1.0s duration, and a low-to-peak range">
+</p>
+
+<p>
+  <img src="docs/screenshots/linux-sweep.png" width="400" alt="Linux sweep sheet with a count of 1, 1.0s duration, and brightness set to N/A">
+</p>
+
+See [docs/linux.md](docs/linux.md#screenshots) for the rename, power-on, and discovery sheets.
 
 ## Features
 

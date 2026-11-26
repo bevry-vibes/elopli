@@ -46,9 +46,25 @@ pub fn activate(application: &gtk::Application, start_hidden: bool) {
 				app.show();
 			}
 			if let Ok(path) = std::env::var("ELOPLI_SCREENSHOT") {
+				let sheet = std::env::var("ELOPLI_SCREENSHOT_SHEET").ok();
+				if let Some(sheet) = sheet.clone() {
+					let app = Rc::clone(&app);
+					glib::timeout_add_local_once(Duration::from_millis(400), move || {
+						app.open_debug_sheet(&sheet);
+					});
+				}
 				let app = Rc::clone(&app);
-				glib::timeout_add_local_once(Duration::from_millis(900), move || {
-					app.screenshot(Path::new(&path));
+				let delay = if sheet.as_deref() == Some("discovery") {
+					Duration::from_millis(3800)
+				} else {
+					Duration::from_millis(1200)
+				};
+				glib::timeout_add_local_once(delay, move || {
+					if sheet.is_some() {
+						app.screenshot_sheet(Path::new(&path));
+					} else {
+						app.screenshot(Path::new(&path));
+					}
 					app.quit();
 				});
 			}
@@ -700,14 +716,52 @@ impl App {
 		*self.local_error.borrow_mut() = Some(message);
 	}
 
-	/// Render the panel to a PNG. This is a development and CI hook; the
+	fn open_debug_sheet(self: &Rc<Self>, sheet: &str) {
+		let name = self
+			.snapshot
+			.borrow()
+			.devices
+			.first()
+			.map(|device| device.name.clone())
+			.unwrap_or_default();
+		if name.is_empty() {
+			return;
+		}
+		let kind = match sheet {
+			"rename" => SheetKind::Rename { name },
+			"power-on" => SheetKind::PowerOn { name },
+			"pulse" => SheetKind::Pulse { names: vec![name] },
+			"sweep" => SheetKind::Sweep { names: vec![name] },
+			"discovery" => {
+				self.worker.send(Command::Scan);
+				SheetKind::Discovery
+			}
+			_ => return,
+		};
+		self.open_sheet(kind);
+	}
+
+	fn screenshot_sheet(&self, path: &Path) {
+		let sheet = self.sheet.borrow().clone();
+		let Some(sheet) = sheet else {
+			eprintln!("screenshot: no sheet is open");
+			return;
+		};
+		self.render_window(&sheet.window, path);
+	}
+
+	/// Render a window to a PNG. This is a development and CI hook; the
 	/// window manager never sees a screenshot request, so it works on Wayland.
 	fn screenshot(&self, path: &Path) {
+		self.render_window(self.window.upcast_ref::<gtk::Window>(), path);
+	}
+
+	fn render_window(&self, window: &gtk::Window, path: &Path) {
 		use gtk::gdk::prelude::PaintableExt;
 
-		let width = f64::from(self.window.width());
-		let height = f64::from(self.window.height());
-		let Some(native) = self.window.native() else {
+		let width = f64::from(window.width());
+		let height = f64::from(window.height());
+		let Some(native) = window.native() else {
 			eprintln!("screenshot: the window is not realized");
 			return;
 		};
@@ -715,7 +769,7 @@ impl App {
 			eprintln!("screenshot: the window has no renderer");
 			return;
 		};
-		let paintable = gtk::WidgetPaintable::new(Some(&self.window));
+		let paintable = gtk::WidgetPaintable::new(Some(window));
 		let snapshot = gtk::Snapshot::new();
 		paintable.snapshot(&snapshot, width, height);
 		let Some(node) = snapshot.to_node() else {
@@ -1179,7 +1233,12 @@ impl Card {
 				// GtkSwitch only animates through its activate path; set_active
 				// changes the handle position immediately.
 				self.switching.set(true);
-				if !self.power.activate() {
+				if self.power.activate() {
+					let switching = Rc::clone(&self.switching);
+					glib::timeout_add_local_once(Duration::from_millis(300), move || {
+						switching.set(false);
+					});
+				} else {
 					self.switching.set(false);
 				}
 			}

@@ -302,6 +302,12 @@ The distance-weighted budget and the endpoint hold provide the smoothness.
 | Discover Lights shows Add for known lights | Known lights show Added; offline known lights show Missing | Re-adding a known light is meaningless. |
 | Native tooltip delay | `NSInitialToolTipDelay = 500` | System tooltips took too long. |
 | WiFi details hidden in the system tooltip | 500 ms custom popover with SSID, frequency, RSSI, quality, and IP | The details need multiple lines and a fast reveal. |
+| Programmatic `GtkSwitch::set_active` | `activate()` on mapped switches; `set_active()` before mapping | `set_active` jumps the handle; only `activate` runs GTK's 100 ms animation. A CSS transition cannot animate the code-driven handle. |
+| Runtime measurement of the WiFi/toggle margins | Fixed 32 px value-label widths and fixed margins | Changing `100%` to `99%` reflowed the track and nudged the controls. Fixed widths are simpler and stable. |
+| Custom menu flattening with replacement hover CSS | A normal-state-only flat rule with a reserved 1 px transparent border; theme hover/press/checked states | The custom CSS lost the theme press state, and the hover border widened the button and shifted the toggle. |
+| Centering the title on its full ink box | X-height centering on the lowercase `o` | The `p` descender pulled the visual centre down; the `o` is the optical centre. |
+| Installing the Soar AppImage package as `elopli` | Install as `elopli-app` | The AppImage carries both the GUI and the CLI; `elopli` shadowed the CLI in `PATH`. |
+| A blank Soar launcher icon | User hicolor `index.theme` plus `gtk-update-icon-cache` | The icon file existed, but the stale user icon cache did not resolve it. |
 
 ## 7. Native app design
 
@@ -415,6 +421,11 @@ The group actions run the same animation on every member of the group.
 - Launch at Login writes `~/.config/autostart/com.bevry.elopli.desktop`.
 - The app uses the native transport only and never falls back to `curl`.
 - `ELOPLI_SCREENSHOT` renders the panel to a PNG through the GTK render node, so visual checks work on Wayland without a screenshot portal.
+- `ELOPLI_SCREENSHOT_SHEET=rename|power-on|pulse|sweep|discovery` opens one sheet first and renders that window. The committed screenshots live in `docs/screenshots/linux-*.png`.
+- Programmatic switch changes call `activate()` once mapped; `set_active()` is used only before the switch is mapped. This is the only path that runs GTK's switch animation.
+- Value labels have a fixed 32 px width. The power switch and WiFi button use fixed 6 px margins, so changing a value cannot reflow the card.
+- The card and settings menu buttons are flat at rest. Their normal state reserves a 1 px transparent border, and hover, press, open, and focus use the theme's default states.
+- The header title is 19 px and x-height centred on the lowercase `o`; ascenders rise above and the `p` descender hangs below.
 - The window has one close button. Close hides the panel to the tray; Quit is in the tray menu. There is no titlebar/content divider.
 - Card reordering starts from any card background. Presses on a slider, switch, button, or menu never start a card drag. The drag payload is a string.
 - WiFi icons follow RSSI quality: green for excellent/good, amber for fair, red for weak or offline.
@@ -482,10 +493,14 @@ The group actions run the same animation on every member of the group.
 | D26 | Linux panel is a regular GTK4 window opened from the tray menu | Wayland forbids client-side placement and GNOME has no layer-shell, so a tray-anchored popover is not portable. | A supported Wayland protocol or a GNOME extension exposes tray anchoring. |
 | D27 | Linux single instance uses the `GtkApplication` D-Bus name | GApplication already forwards activation without a socket or lock file. | The app must run without a session bus. |
 | D28 | Install the Linux AppImage through Soar as `elopli-app` | The AppImage carries both the GUI and the CLI; a package named `elopli` makes the GUI shadow the CLI in `PATH`. | Soar supports multiple binaries from one package, or the CLI is shipped separately. |
+| D29 | Programmatic switch animation uses `GtkSwitch::activate()` on mapped widgets | `set_active` snaps the handle; `activate` runs GTK's animation. | GTK adds an animated programmatic setter, or the app replaces the switch with a custom widget. |
+| D30 | Card value labels have a fixed 32 px width and fixed control margins | Prevents a value change from reflowing the track and nudging the WiFi/toggle group. | A grid layout or font scaling makes a fixed width wrong. |
+| D31 | Menu buttons are flat at rest with a reserved transparent border; theme states for special states | Keeps the familiar hover/press look without letting the hover border shift the controls. | GTK exposes a flap/menu style that separates rest and special states without layout changes. |
 
 ## 11. Open items
 
-- Linux interaction smoke test, packaging installation, Ubuntu 24.04 validation, the AppImage release recipe, and publication to a Soar repository; Flatpak is shelved.
+- Linux Ubuntu 24.04 and KDE validation, the AppImage release recipe, publication to a Soar repository, and visual regression checks; Flatpak is shelved.
+- The Linux app CI job needs its first run on the pushed commit.
 - Migrate the macOS session to the shared naming rule; its UI already shows the remote display name.
 - Windows Authenticode signing and a public Scoop bucket.
 - Windows ARM64.
@@ -493,5 +508,5 @@ The group actions run the same animation on every member of the group.
 - Accessibility, keyboard navigation, and localization are deferred until after v1.
 - Default Shortcuts' **Show When Run** to off for Elopli actions without crashing Shortcuts; no public App Intents API or safe metadata workaround is known.
 - Migrate the macOS session logic (link graph, slider coordinator, discovery rows) to `elopli-session`; the Windows app already uses the shared crate.
-- Real-hardware Windows smoke tests and a Windows/Linux CI matrix.
+- Real-hardware Windows smoke tests; the Linux app CI job is in place.
 - Windows discovery needs a firewall and mDNS diagnostic in the UI when a browse returns nothing.

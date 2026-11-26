@@ -6,7 +6,7 @@
 | --- | --- | --- | --- |
 | macOS 14+ | Implemented and hardware-tested | SwiftUI `MenuBarExtra`, `LSUIElement`, App Intents | Local app bundle; Developer ID/notarization still open |
 | Windows 10 1809+ x64 | Implemented; hardware discovery verified | Rust Win32 tray panel with GDI+ rendering | Portable ZIP and generated Scoop manifest; Authenticode open |
-| Linux (Fedora/Ubuntu) | Implemented on Fedora 45; interaction and packaging validation open | Rust `gtk4-rs` with `ksni` | Portable tarball; AppImage through Soar when `appimagetool` is available; Flatpak is shelved |
+| Linux (Fedora/Ubuntu) | Implemented and hardware-tested on Fedora 45; Ubuntu/KDE and release publication open | Rust `gtk4-rs` with `ksni` | Portable tarball and AppImage; local AppImage installed through Soar; Flatpak is shelved |
 
 The Rust core and CLI compile for all three platforms.
 The shared `elopli-session` crate owns grouping, refresh revisions, live slider writes, discovery rows, and animation hand-off.
@@ -54,13 +54,15 @@ The Windows and Linux UIs are renderers over the shared session layer; the macOS
 - GNOME needs the AppIndicator extension. Wayland forbids client-side placement, so the panel opens as a regular window from the tray menu.
 - Launch at Login writes `~/.config/autostart/com.bevry.elopli.desktop`.
 - Single instance uses the `com.bevry.elopli` D-Bus name through `GtkApplication`.
+- Local install uses `soar install --name elopli-app ...` so the AppImage does not shadow the `elopli` CLI.
+- `ELOPLI_SCREENSHOT` and `ELOPLI_SCREENSHOT_SHEET` render the panel or a sheet to a PNG for docs and visual checks.
 - Firewall guidance: allow multicast UDP 5353 and TCP 9123 on the light's network, and avoid VPN or bridge adapters that shadow the light subnet.
-- Release work: KDE validation, a clean Ubuntu VM, AppImage signing/distribution, and a public install path.
+- Release work: KDE validation, a clean Ubuntu VM, AppImage signing/distribution, a public Soar repository/install path, and visual regression checks.
 
 ## Before the first Windows/Linux beta
 
 - Shared session/state layer extracted: done for Windows; macOS migration open.
-- CI green on macOS, Linux, and Windows with formatting, clippy, tests, release builds, and cross-checks: Windows and Linux app jobs added; Fedora desktop runtime still open.
+- CI green on macOS, Linux, and Windows with formatting, clippy, tests, release builds, and cross-checks: Windows and Linux app jobs added; the Linux job needs its first pushed run.
 - Connection reuse, atomic registry writes, and structured errors in place: done.
-- Packaging, autostart, single-instance, firewall, and update policy documented: Windows done; Linux packaging written, install/AppImage release open.
-- Real-hardware smoke tests: macOS only; Windows mDNS discovery verified; Linux read one Key Light Air and two Key Lights and rendered their live state and remote names, while UI write actions and full interaction still need exercise.
+- Packaging, autostart, single-instance, firewall, and update policy documented: Windows done; Linux packaging built and installed through Soar, AppImage release publication open.
+- Real-hardware smoke tests: macOS only; Windows mDNS discovery verified; Linux exercised the full panel on one Key Light Air and two Key Lights, including power, sliders, linking, menus, discovery, and all sheets. Windows UI write actions still need exercise.

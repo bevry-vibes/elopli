@@ -6,8 +6,37 @@ It has no cloud service, account, or telemetry.
 
 ## Status
 
-Implemented and hardware-read-tested on Fedora 45 Workstation with GNOME Shell 51 on Wayland against one Key Light Air and two Key Lights, firmware 1.0.3 (222).
-The full interaction smoke test, packaging install, and Ubuntu validation are still open.
+Implemented and hardware-tested on Fedora 45 Workstation with GNOME Shell 51 on Wayland against one Key Light Air and two Key Lights, firmware 1.0.3 (222).
+The panel, linking, sliders, menus, discovery, rename, power-on, pulse, sweep, XDG autostart, and the Soar AppImage install are exercised.
+Ubuntu 24.04, KDE, and the AppImage release publication are still open.
+
+## Screenshots
+
+These screenshots come from the real Fedora build rendered through the GTK render node.
+
+<p>
+  <img src="screenshots/linux-panel.png" width="460" alt="Linux panel with three lights, Back and Right linked">
+</p>
+
+<p>
+  <img src="screenshots/linux-rename.png" width="400" alt="Linux rename sheet for the first light">
+</p>
+
+<p>
+  <img src="screenshots/linux-power-on.png" width="400" alt="Linux power-on behaviour sheet">
+</p>
+
+<p>
+  <img src="screenshots/linux-pulse.png" width="400" alt="Linux pulse sheet with a count of 3 and a 1.0s duration">
+</p>
+
+<p>
+  <img src="screenshots/linux-sweep.png" width="400" alt="Linux sweep sheet with a count of 1 and brightness set to N/A">
+</p>
+
+<p>
+  <img src="screenshots/linux-discovery.png" width="400" alt="Linux discovery sheet with three lights marked Added">
+</p>
 
 ## Requirements
 
@@ -178,6 +207,17 @@ It uses the GTK render node, so it works on Wayland without a screenshot portal:
 ```sh
 ELOPLI_SCREENSHOT=/tmp/elopli-panel.png ./target/debug/elopli-app
 ```
+
+`ELOPLI_SCREENSHOT_SHEET` opens one sheet first and renders that window instead.
+Accepted values are `rename`, `power-on`, `pulse`, `sweep`, and `discovery`:
+
+```sh
+ELOPLI_SCREENSHOT=/tmp/elopli-pulse.png \
+ELOPLI_SCREENSHOT_SHEET=pulse \
+./target/debug/elopli-app
+```
+
+The sheets are separate GTK windows, so a sheet capture contains the sheet rather than the panel behind it.
 
 ## Development
 

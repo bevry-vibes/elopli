@@ -42,4 +42,5 @@ this process is documented in the upstream repo's [local tweaks pattern](https:/
 - Do not commit `dist/`; the Windows and Linux build scripts write packages and checksums there.
 - The light's display name is authoritative. The registry key mirrors it, and link groups migrate when a name changes; do not add per-interface nicknames.
 - Update [docs/linux.md](docs/linux.md) when Linux build, packaging, tray, or Wayland behaviour changes.
+- Linux screenshots live in `docs/screenshots/linux-*.png`; regenerate them with `ELOPLI_SCREENSHOT` and `ELOPLI_SCREENSHOT_SHEET`. Never include a serial number or MAC address in a screenshot.
 - Keep the Rust core and session layer free of UI and platform code. The CLI and the apps are thin wrappers.
