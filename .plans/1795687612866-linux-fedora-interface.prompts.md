@@ -124,3 +124,7 @@ Answer: no. Plain GTK4 is sufficient for this delivery.
 > the text size of Elopli needs to be slightly bigger to match our goals regarding it - perhaps use some red lines or something for you to see
 
 > The problem with Elopli in the header, is that it is aligned to the leg of the p, rather than the base of the Elo and li, the leg of the p should be overflow, the height should be the E - that's what we want, and tell me what that name is in typography
+
+> Elopli try aligning to the lowercase o
+
+> when reverting, you forgot to also align them with the button in the on/off toggle, and once done, to ensure the whitespace between the toggle and wifi is the same distance as the space between the toggle and the ... button

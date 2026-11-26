@@ -161,3 +161,6 @@ The first Soar install exposed the difference between a portable tarball and a d
 
 - The runtime measurement and size group were removed. Each value label now has a fixed 32 px width and the WiFi and power controls use fixed 2 px margins. Changing a value from `100%` to `99%` cannot change any card geometry or shift the WiFi icon, toggle, or warmth row.
 - The header title is 19 px and uses cap-height centring. The alignment reference is the baseline of E/o/l/i, the reference height is the cap height, and the p descender is allowed to hang below the icon centreline.
+
+- The header title now uses x-height centring: the lowercase `o` shares the icon centreline (measured o centroid 23.0 px vs icon centroid 22.5 px), while the E/l ascenders rise above and the p descender hangs below.
+- The card menu is flat and the same 30 px allocation as the WiFi button. Fixed 5 px power and 10 px WiFi margins align the on knob with the rightmost slider thumb and leave 29 px and 28 px of visible whitespace on each side. No runtime measurement remains, so value changes cannot nudge the controls.
