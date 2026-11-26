@@ -128,3 +128,11 @@ Answer: no. Plain GTK4 is sufficient for this delivery.
 > Elopli try aligning to the lowercase o
 
 > when reverting, you forgot to also align them with the button in the on/off toggle, and once done, to ensure the whitespace between the toggle and wifi is the same distance as the space between the toggle and the ... button
+
+> the white button in the toggle is still not aligned with the slider buttons at rightmost - you still need to move the on/off toggles left a little bit
+>
+> when the light menu button is hoevered, it should have that inset border hover state that it had before your recente changes
+
+> increae the weight/boldness of the light names
+
+> make it 800, 700 was not a noticeable improvement

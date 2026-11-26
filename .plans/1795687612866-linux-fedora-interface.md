@@ -164,3 +164,7 @@ The first Soar install exposed the difference between a portable tarball and a d
 
 - The header title now uses x-height centring: the lowercase `o` shares the icon centreline (measured o centroid 23.0 px vs icon centroid 22.5 px), while the E/l ascenders rise above and the p descender hangs below.
 - The card menu is flat and the same 30 px allocation as the WiFi button. Fixed 5 px power and 10 px WiFi margins align the on knob with the rightmost slider thumb and leave 29 px and 28 px of visible whitespace on each side. No runtime measurement remains, so value changes cannot nudge the controls.
+
+- The card title CSS class was never attached to the label, so the 600 and 700 weights had no effect. The class is now applied and the weight is 800 (Extra Bold).
+- The toggle moved another 2 px left; its right edge now matches the slider thumb's right edge. The WiFi margin is compensated so the visible gaps stay equal at 30 px on both sides.
+- The card menu regains its inset-border hover state while staying flat at rest.
