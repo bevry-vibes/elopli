@@ -11,6 +11,7 @@ use elopli_core::{
 	kelvin_to_mired, parse_duration, validate_brightness, validate_display_name,
 	validate_temperature, validate_warmth,
 };
+use elopli_session::LinkGraph;
 use rayon::prelude::*;
 use serde_json::{Map, Value, json};
 
@@ -1133,9 +1134,28 @@ fn run_discover(args: &DiscoverArgs, settings: &Settings) -> Result<u8> {
 				);
 				continue;
 			};
+			let host = address.to_string();
+			let client = ElopliClient::new(
+				host.clone(),
+				device.port,
+				Duration::from_secs(3),
+				2,
+				TransportMode::Native,
+			);
+			let remote = client
+				.info()
+				.ok()
+				.map(|info| info.display_name.trim().to_string())
+				.filter(|name| !name.is_empty());
+			let mut name = remote.unwrap_or_else(|| device.instance.clone());
+			if config.devices.iter().any(|existing| {
+				existing.name.to_lowercase() == name.to_lowercase() && existing.host != host
+			}) {
+				name = device.instance.clone();
+			}
 			if config.add(Device {
-				name: device.instance.clone(),
-				host: address.to_string(),
+				name,
+				host,
 				port: device.port,
 			})? {
 				added += 1;
@@ -1162,7 +1182,7 @@ fn run(cli: Cli) -> Result<u8> {
 	if let Command::Discover(args) = &cli.command {
 		return run_discover(args, &settings);
 	}
-	let config = Config::load(settings.config_path.clone())?;
+	let mut config = Config::load(settings.config_path.clone())?;
 	match &cli.command {
 		Command::List => {
 			if settings.json {
@@ -1193,6 +1213,38 @@ fn run(cli: Cli) -> Result<u8> {
 				.unwrap_or_else(|_| Device::new(args.device.clone(), args.device.clone()));
 			let name = validate_display_name(&args.new_name)?;
 			let record = rename_record(&device, &settings, &name, args.wait.wait);
+			if let Some(display_name) = record
+				.get("display_name")
+				.and_then(Value::as_str)
+				.filter(|name| !name.is_empty())
+			{
+				match config.rename(&device.name, display_name) {
+					Ok(true) => {
+						if let Err(error) = config.save() {
+							eprintln!(
+								"renamed on the device, but could not update {}: {error}",
+								config.path.display()
+							);
+						} else {
+							let links_path = config.path.with_file_name("links.json");
+							if let Ok(mut links) = LinkGraph::load(&links_path)
+								&& links.rename(&device.name, display_name)
+								&& let Err(error) = links.save(&links_path)
+							{
+								eprintln!(
+									"renamed on the device, but could not update {}: {error}",
+									links_path.display()
+								);
+							}
+						}
+					}
+					Ok(false) => {}
+					Err(error) => eprintln!(
+						"renamed on the device, but could not update {}: {error}",
+						config.path.display()
+					),
+				}
+			}
 			if settings.json {
 				print_json(&Value::Array(vec![record.clone()]));
 			} else {

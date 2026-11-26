@@ -262,6 +262,35 @@ impl LinkGraph {
 		sync
 	}
 
+	/// Rename a device everywhere in the graph: groups and the pending
+	/// selection. Returns true when anything changed.
+	pub fn rename(&mut self, from: &str, to: &str) -> bool {
+		if from == to {
+			return false;
+		}
+		let before = self.clone();
+		for group in &mut self.groups {
+			for name in &mut group.device_names {
+				if name == from {
+					*name = to.to_string();
+				}
+			}
+		}
+		self.pending = self
+			.pending
+			.iter()
+			.cloned()
+			.map(|mut target| {
+				if target.device == from {
+					target.device = to.to_string();
+				}
+				target
+			})
+			.collect();
+		self.normalize();
+		*self != before
+	}
+
 	pub fn clear_pending(&mut self) {
 		self.pending.clear();
 	}
@@ -571,6 +600,22 @@ mod tests {
 			graph.linked_device_names("Back", LinkKind::Brightness),
 			names(&["Back", "Left", "Right"])
 		);
+	}
+
+	#[test]
+	fn rename_migrates_groups_and_pending_selections() {
+		let mut graph = graph(&[(LinkKind::Card, &["Left", "Right"])]);
+		graph
+			.pending
+			.insert(LinkTarget::new("Left", LinkKind::Warmth));
+		assert!(graph.rename("Left", "Desk"));
+		assert_eq!(graph.groups[0].device_names, names(&["Desk", "Right"]));
+		assert!(
+			graph
+				.pending
+				.contains(&LinkTarget::new("Desk", LinkKind::Warmth))
+		);
+		assert!(!graph.rename("Desk", "Desk"));
 	}
 
 	#[test]

@@ -377,6 +377,38 @@ impl Config {
 		Ok(true)
 	}
 
+	/// Rename a registry entry, keeping the order. Returns true when the name
+	/// changed. Names compare case-insensitively, like every other registry
+	/// operation. The caller saves the config and migrates link groups.
+	pub fn rename(&mut self, from: &str, to: &str) -> Result<bool> {
+		let to = to.trim();
+		if to.is_empty() {
+			return Err(ElopliError::Config("device name must not be empty".into()));
+		}
+		let Some(index) = self
+			.devices
+			.iter()
+			.position(|device| same_text(&device.name, from))
+		else {
+			return Ok(false);
+		};
+		if self.devices[index].name == to {
+			return Ok(false);
+		}
+		if self
+			.devices
+			.iter()
+			.enumerate()
+			.any(|(other, device)| other != index && same_text(&device.name, to))
+		{
+			return Err(ElopliError::Config(format!(
+				"a device named {to} already exists"
+			)));
+		}
+		self.devices[index].name = to.to_string();
+		Ok(true)
+	}
+
 	pub fn reorder(&mut self, names: &[String]) -> Result<()> {
 		if names.len() != self.devices.len() {
 			return Err(ElopliError::Config(
@@ -481,6 +513,21 @@ mod tests {
 		second.save().unwrap();
 		first.devices[0].host = "192.0.2.30".to_string();
 		assert!(matches!(first.save(), Err(ElopliError::ConfigConflict)));
+	}
+
+	#[test]
+	fn rename_keeps_order_and_rejects_case_insensitive_collisions() {
+		let mut config = Config::new(temp_path("devices.json"));
+		config.add(Device::new("Left", "192.0.2.10")).unwrap();
+		config.add(Device::new("Right", "192.0.2.11")).unwrap();
+		assert!(config.rename("Left", "Desk").unwrap());
+		assert_eq!(config.devices[0].name, "Desk");
+		assert_eq!(config.devices[1].name, "Right");
+		assert!(config.rename("Desk", "desk").unwrap());
+		assert_eq!(config.devices[0].name, "desk");
+		assert!(config.rename("desk", "Right").is_err());
+		assert!(!config.rename("Missing", "Desk").unwrap());
+		assert!(config.rename("Desk", " ").is_err());
 	}
 
 	#[test]

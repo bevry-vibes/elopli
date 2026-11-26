@@ -287,7 +287,118 @@ impl Session {
 				Err(error) => self.devices[index].error = Some(error.to_string()),
 			}
 		}
+		self.adopt_display_names();
 		self.refreshing = false;
+	}
+
+	/// Make the light's own display name the registry key. The registry name is
+	/// an internal identity for link groups and CLI targeting; the user-visible
+	/// name is the one stored on the device. A rename from any interface
+	/// therefore reaches every interface on its next refresh.
+	fn adopt_display_names(&mut self) {
+		let renames = self.pending_display_renames();
+		if renames.is_empty() {
+			return;
+		}
+		let mut config = self.config.clone();
+		let mut links = self.links.clone();
+		let mut links_changed = false;
+		for (from, to) in &renames {
+			if let Err(error) = config.rename(from, to) {
+				self.error = Some(error.to_string());
+				return;
+			}
+			links_changed |= links.rename(from, to);
+		}
+		if let Err(error) = config.save() {
+			self.error = Some(error.to_string());
+			return;
+		}
+		if links_changed && let Err(error) = links.save(&self.links_path) {
+			self.error = Some(error.to_string());
+			return;
+		}
+		self.config = config;
+		self.links = links;
+		for (from, to) in renames {
+			self.migrate_name(&from, &to);
+		}
+	}
+
+	fn pending_display_renames(&self) -> Vec<(String, String)> {
+		let mut adopted = HashSet::new();
+		let mut renames = Vec::new();
+		for device in &self.devices {
+			let Some(info) = &device.info else {
+				continue;
+			};
+			let display = info.display_name.trim();
+			if display.is_empty() || device.name == display {
+				continue;
+			}
+			if self.devices.iter().any(|other| {
+				other.name != device.name && other.name.to_lowercase() == display.to_lowercase()
+			}) {
+				continue;
+			}
+			if !adopted.insert(display.to_lowercase()) {
+				continue;
+			}
+			renames.push((device.name.clone(), display.to_string()));
+		}
+		renames
+	}
+
+	fn rename_local(&mut self, from: &str, to: &str) -> Result<bool> {
+		if to.trim().is_empty() {
+			return Ok(false);
+		}
+		let mut config = self.config.clone();
+		if !config.rename(from, to)? {
+			return Ok(false);
+		}
+		let mut links = self.links.clone();
+		let links_changed = links.rename(from, to);
+		config.save()?;
+		if links_changed {
+			links.save(&self.links_path)?;
+		}
+		self.config = config;
+		self.links = links;
+		self.migrate_name(from, to);
+		Ok(true)
+	}
+
+	fn migrate_name(&mut self, from: &str, to: &str) {
+		for device in &mut self.devices {
+			if device.name == from {
+				device.name = to.to_string();
+			}
+		}
+		if let Some(value) = self.revisions.remove(from) {
+			self.revisions.insert(to.to_string(), value);
+		}
+		if self.pulsing.remove(from) {
+			self.pulsing.insert(to.to_string());
+		}
+		if let Some(value) = self.live_brightness.remove(from) {
+			self.live_brightness.insert(to.to_string(), value);
+		}
+		if let Some(value) = self.live_warmth.remove(from) {
+			self.live_warmth.insert(to.to_string(), value);
+		}
+		let keys = self
+			.live_at
+			.keys()
+			.filter(|(name, _)| name == from)
+			.cloned()
+			.collect::<Vec<_>>();
+		for (_, kind) in keys {
+			if let Some(value) = self.live_at.remove(&(from.to_string(), kind)) {
+				self.live_at.insert((to.to_string(), kind), value);
+			}
+		}
+		self.sliders = SliderQueue::default();
 	}
 
 	/// Blocking convenience for tests and synchronous callers.
@@ -435,6 +546,14 @@ impl Session {
 	}
 
 	pub fn rename(&mut self, name: &str, new_name: &str) -> Result<()> {
+		let trimmed = new_name.trim();
+		if self.devices.iter().any(|device| {
+			device.name != name && device.name.to_lowercase() == trimmed.to_lowercase()
+		}) {
+			return Err(ElopliError::Config(format!(
+				"a light named {trimmed} already exists"
+			)));
+		}
 		let Some(device) = self
 			.devices
 			.iter()
@@ -446,8 +565,10 @@ impl Session {
 		self.touch(std::slice::from_ref(&device.name));
 		let client = client_for_target(&DeviceTarget::from(&device), self.options);
 		match client.rename(new_name) {
-			Ok(_) => {
-				self.touch(std::slice::from_ref(&device.name));
+			Ok(display_name) => {
+				if let Err(error) = self.rename_local(&device.name, &display_name) {
+					self.error = Some(error.to_string());
+				}
 				self.refresh();
 				Ok(())
 			}
@@ -1201,10 +1322,10 @@ mod tests {
 		session.error = None;
 	}
 
-	fn accessory_info() -> AccessoryInfo {
+	fn accessory_info_named(display_name: &str) -> AccessoryInfo {
 		AccessoryInfo {
 			product_name: "Elgato Key Light".to_string(),
-			display_name: "Left".to_string(),
+			display_name: display_name.to_string(),
 			firmware_version: "1.0.3".to_string(),
 			firmware_build_number: 222,
 			hardware_board_type: 53,
@@ -1215,6 +1336,10 @@ mod tests {
 				rssi: -40,
 			}),
 		}
+	}
+
+	fn accessory_info() -> AccessoryInfo {
+		accessory_info_named("Left")
 	}
 
 	fn refresh_session() -> Session {
@@ -1309,6 +1434,38 @@ mod tests {
 		assert!(session.begin_refresh().is_none());
 		session.finish_refresh(&HashMap::new(), Vec::new());
 		assert!(session.begin_refresh().is_some());
+	}
+
+	#[test]
+	fn a_remote_display_name_becomes_the_registry_key() {
+		let mut session = refresh_session();
+		session.devices[0].info = Some(accessory_info_named("Desk"));
+		session.adopt_display_names();
+		assert_eq!(session.devices[0].name, "Desk");
+		assert_eq!(session.config.devices[0].name, "Desk");
+		let loaded = Config::load(session.config.path.clone()).unwrap();
+		assert_eq!(loaded.devices[0].name, "Desk");
+	}
+
+	#[test]
+	fn remote_names_do_not_steal_another_registry_name() {
+		let mut session = refresh_session();
+		session.devices.push(device("Right", "192.0.2.11", 9123));
+		session.devices[0].info = Some(accessory_info_named("Right"));
+		session.adopt_display_names();
+		assert_eq!(session.devices[0].name, "Left");
+		assert_eq!(session.config.devices[0].name, "Left");
+	}
+
+	#[test]
+	fn duplicate_remote_names_rename_only_the_first_light() {
+		let mut session = refresh_session();
+		session.devices.push(device("Right", "192.0.2.11", 9123));
+		session.devices[0].info = Some(accessory_info_named("Desk"));
+		session.devices[1].info = Some(accessory_info_named("Desk"));
+		session.adopt_display_names();
+		assert_eq!(session.devices[0].name, "Desk");
+		assert_eq!(session.devices[1].name, "Right");
 	}
 
 	#[test]

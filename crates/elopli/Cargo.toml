@@ -14,6 +14,7 @@ path = "src/main.rs"
 
 [dependencies]
 elopli-core = { version = "0.1.0", path = "../elopli-core" }
+elopli-session = { version = "0.1.0", path = "../elopli-session" }
 clap.workspace = true
 rayon.workspace = true
 serde_json.workspace = true
