@@ -1069,12 +1069,6 @@ impl App {
 		}
 		let on = device.is_effectively_on();
 		self.renderer.toggle(power, on, &self.theme);
-		if let Some(color) = self
-			.field_color(graph, &card.name, LinkKind::Brightness)
-			.or_else(|| self.field_color(graph, &card.name, LinkKind::Warmth))
-		{
-			let _ = color;
-		}
 
 		self.renderer.wifi(
 			wifi.x + wifi.w / 2.0,
@@ -1128,7 +1122,9 @@ impl App {
 		let brightness_label = if device
 			.state
 			.is_some_and(|state| state.on && state.brightness < 2)
-			&& self.preview.is_empty()
+			&& !self
+				.preview
+				.contains_key(&(card.name.clone(), LinkKind::Brightness))
 		{
 			"off".to_string()
 		} else {
@@ -1369,10 +1365,6 @@ impl App {
 			return Some(rgba(255, 0, 255, 150));
 		}
 		None
-	}
-
-	fn field_color(&self, graph: &LinkGraph, name: &str, kind: LinkKind) -> Option<u32> {
-		self.link_color(graph, name, kind)
 	}
 
 	fn hover_target(&self, name: &str, kind: LinkKind) -> bool {
@@ -2683,7 +2675,7 @@ impl App {
 		let drag = self.drag.take();
 		match drag {
 			Some(Drag::Slider { name, kind }) => {
-				let value = self.slider_value_at(kind, x);
+				let value = self.slider_value_at(&name, kind, x);
 				self.preview_slider(&name, kind, value);
 				self.worker.send(match kind {
 					LinkKind::Brightness => Command::QueueBrightness {
@@ -2768,10 +2760,7 @@ impl App {
 		}
 	}
 
-	fn slider_value_at(&self, kind: LinkKind, x: f32) -> u8 {
-		let Some(name) = self.drag_name() else {
-			return 50;
-		};
+	fn slider_value_at(&self, name: &str, kind: LinkKind, x: f32) -> u8 {
 		let layout = self.layout();
 		let Some(card) = layout.cards.iter().find(|card| card.name == name) else {
 			return 50;
@@ -2791,13 +2780,6 @@ impl App {
 			LinkKind::Brightness => (2.0 + t * 98.0).round() as u8,
 			LinkKind::Warmth => ((1.0 - t) * 100.0).round() as u8,
 			_ => 50,
-		}
-	}
-
-	fn drag_name(&self) -> Option<String> {
-		match &self.drag {
-			Some(Drag::Slider { name, .. }) | Some(Drag::Card { name, .. }) => Some(name.clone()),
-			_ => None,
 		}
 	}
 
@@ -2833,7 +2815,7 @@ impl App {
 		}
 		match hit {
 			Some(Hit::Brightness(name)) => {
-				let value = self.slider_value_at(LinkKind::Brightness, x);
+				let value = self.slider_value_at(&name, LinkKind::Brightness, x);
 				self.preview_slider(&name, LinkKind::Brightness, value);
 				self.worker.send(Command::QueueBrightness {
 					name: name.clone(),
@@ -2845,7 +2827,7 @@ impl App {
 				});
 			}
 			Some(Hit::Warmth(name)) => {
-				let value = self.slider_value_at(LinkKind::Warmth, x);
+				let value = self.slider_value_at(&name, LinkKind::Warmth, x);
 				self.preview_slider(&name, LinkKind::Warmth, value);
 				self.worker.send(Command::QueueWarmth {
 					name: name.clone(),
@@ -2876,17 +2858,16 @@ impl App {
 				} else {
 					Some(name)
 				};
-				self.invalidate();
 			}
 			Some(hit) => {
 				self.pressed = Some(hit);
-				self.invalidate();
 			}
 			None => {}
 		}
+		self.invalidate();
 	}
 
-	fn on_lbutton_up(&mut self) {
+	fn on_lbutton_up(&mut self, x: f32, y: f32) {
 		unsafe {
 			let _ = ReleaseCapture();
 		}
@@ -2924,7 +2905,9 @@ impl App {
 		}
 		self.drag_target = None;
 		self.preview_until = Some(Instant::now() + std::time::Duration::from_millis(700));
-		if let Some(hit) = self.pressed.take() {
+		if let Some(hit) = self.pressed.take()
+			&& self.hit_test(x, y) == Some(hit.clone())
+		{
 			self.activate(hit);
 		}
 		self.invalidate();
@@ -3187,7 +3170,9 @@ unsafe extern "system" fn window_proc(
 		}
 		WM_LBUTTONUP => {
 			if let Some(app) = app_mut(window) {
-				app.on_lbutton_up();
+				let x = unscale(app.dpi, (lparam.0 & 0xFFFF) as i16 as i32);
+				let y = unscale(app.dpi, ((lparam.0 >> 16) & 0xFFFF) as i16 as i32);
+				app.on_lbutton_up(x, y);
 			}
 			LRESULT(0)
 		}
