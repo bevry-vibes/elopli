@@ -66,3 +66,41 @@ Answer: no. Plain GTK4 is sufficient for this delivery.
 >   ]
 > }
 > ```
+
+## Post-delivery polish
+
+> did you install it via soar, I don't see it in my apps launcher, and it isn't currently in the menubar, there are small alignment fixes to do
+
+> soar can install .appimage files directly
+>
+> or perhaps soar is outdated
+
+> the brightness button glow is cut-off - the icons in the titlebar should be center aligned, except for the minimise and maximise
+>
+> dragging a light doesn't work, remove the drag icons and just allow them to drag the light by dragging anywhere of the card's background - as per macos behaviour
+
+> is there not a flame/fire icon to use for the warmth slider?
+
+> can you just use the windows flame? as that is svg too right, is that permitted?
+
+> do the filled flame icon for gnome
+
+> wifi icon should be coloured
+>
+> we don't need a minimise nor maximise button, just the close, which closes it back to the systray
+>
+> holding/dargging the temp slider all the way to the right causes the 100% in the brightness slider to flicker
+
+> actually, any holding/dragging/mouse-down on the temp slider cuases the brightness value text to flicker, regardless of brightness value
+
+> the brightness slider left and right are not rounded
+
+> the app install via soar doesn't have any icon on it
+>
+> in the app launcher that is - no icon for elopli
+
+> dragging seems to initiate fine, but doesn't drop - the cursor icon seems to show there are no valid drop targets
+
+> our light toggle button looks different to the fedora settings app toggle buttons, why?
+>
+> is it possible to remove the thin line between the app window's menu/title-bar and its content?

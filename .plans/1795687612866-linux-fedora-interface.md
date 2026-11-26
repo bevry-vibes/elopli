@@ -137,3 +137,19 @@ The macOS registry listed Back on 192.168.4.36, Left on 192.168.4.37, and Right 
 A read-only check from Fedora found that Left and Right were already stored on those lights, while the 192.168.4.36 light had no display name.
 `elopli rename 192.168.4.36 Back` wrote the missing name, and `elopli discover --write` added Left and Right to the Fedora registry from their remote names.
 The Fedora registry now holds `Back`, `Left`, and `Right`, and the three-card panel renders them in that order.
+
+## Post-delivery polish
+
+The first Soar install exposed the difference between a portable tarball and a desktop-integrated app.
+
+- Soar 0.14.2 already installs local AppImages. `soar install --name elopli-app --version 0.1.0 ./Elopli-0.1.0-linux-x86_64.AppImage` copies the AppImage, links `elopli-app`, and writes the desktop entry and icon. The `elopli-app` name is deliberate: installing as `elopli` shadows the CLI.
+- The launcher showed no icon because the user hicolor icon cache was stale. Installing a standard hicolor `index.theme` and running `gtk-update-icon-cache` made `elopli-soar` resolve to the 256 px icon. GTK's icon lookup now returns the file.
+- The slider glow was clipped at the widget edge. The slider height is now 40 px, the glow radius is capped to fit, and the horizontal inset is 21 px.
+- The brightness track is drawn with a rounded left cap and a rounded right cap instead of a sliced rectangle.
+- The warmth slider uses Microsoft's Fluent filled fire path. The Windows app already embeds the same Fluent icon set; the MIT attribution in THIRD-PARTY-NOTICES now names both apps.
+- WiFi icons use the light's RSSI quality: green for excellent/good, amber for fair, red for weak or offline.
+- The panel chrome is close-only. Close hides the panel to the tray; Quit is in the tray menu. The titlebar/content divider is removed.
+- The switch uses a white knob and a subtle border so it matches the libadwaita switch in GNOME Settings without adding libadwaita.
+- Cards drag from the background; the grip icons are gone. The drag source ignores presses that start on a slider, switch, or button. The DnD payload is a plain string so drop targets accept it.
+- Fixed a label bug where dragging the warmth slider rewrote the brightness value text and made it flicker.
+- The installed AppImage is live and the tray is registered. The remaining user check is the drop half of card reordering.
