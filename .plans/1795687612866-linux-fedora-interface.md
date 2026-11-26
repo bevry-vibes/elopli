@@ -158,3 +158,6 @@ The first Soar install exposed the difference between a portable tarball and a d
 
 - A horizontal `GtkSizeGroup` now binds the brightness and warmth value labels, so both slider tracks end at the same X even when one label reads `100%` and the other `0%`. The rightmost thumb of both sliders and the on knob of the power switch share one column in the rendered panel.
 - The header title is vertically centred and nudged 2 px down to sit on the same centreline as the action icons.
+
+- The runtime measurement and size group were removed. Each value label now has a fixed 32 px width and the WiFi and power controls use fixed 2 px margins. Changing a value from `100%` to `99%` cannot change any card geometry or shift the WiFi icon, toggle, or warmth row.
+- The header title is 19 px and uses cap-height centring. The alignment reference is the baseline of E/o/l/i, the reference height is the cap height, and the p descender is allowed to hang below the icon centreline.

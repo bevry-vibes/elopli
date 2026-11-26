@@ -118,3 +118,9 @@ Answer: no. Plain GTK4 is sufficient for this delivery.
 > I will clarify, when all slider buttons are moved rightmost, their buttons do not align; temp button at rightmost and brightness button at rightmost are not aligned, they need to be aligned, and aligned with the button of each light's on/off toggles
 >
 > Elopli in the header, a separate issue is too high, it needs to be lowered to align correcftly with the icons to its right
+
+> going from 100% brightness to 99% brightness, causes the wifi icon, the on/off toggle, and the warmth button to all nudge... this is unexpecteed, and what is with that complexity? the solution should have been way easier to the alignment issue...
+
+> the text size of Elopli needs to be slightly bigger to match our goals regarding it - perhaps use some red lines or something for you to see
+
+> The problem with Elopli in the header, is that it is aligned to the leg of the p, rather than the base of the Elo and li, the leg of the p should be overflow, the height should be the E - that's what we want, and tell me what that name is in typography
