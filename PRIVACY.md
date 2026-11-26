@@ -11,9 +11,12 @@ Elopli does not collect telemetry, analytics, accounts, or cloud data.
 - The control lock uses a per-light file in the platform state directory.
 - No logs are written by default.
 
+## In memory only
+
+- Device serial numbers are held in memory while the app is running and shown only when the user hovers a card's model name. They are never written to disk, logs, telemetry, documentation, plans, or commits.
+
 ## Discarded
 
-- Device serial numbers.
 - MAC addresses.
 - The mDNS interface identifier.
 

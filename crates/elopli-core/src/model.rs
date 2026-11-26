@@ -98,7 +98,36 @@ impl WifiInfo {
 	}
 }
 
-/// Product and network details. Serial and MAC addresses are discarded.
+/// A serial number retained only for an explicit UI reveal. It is redacted
+/// from Debug output and is never serialized or logged.
+#[derive(Clone, PartialEq, Eq, Default)]
+pub struct SerialNumber(String);
+
+impl SerialNumber {
+	pub fn new(value: impl Into<String>) -> Self {
+		Self(value.into())
+	}
+
+	pub fn as_str(&self) -> &str {
+		&self.0
+	}
+
+	pub fn is_empty(&self) -> bool {
+		self.0.trim().is_empty()
+	}
+}
+
+impl std::fmt::Debug for SerialNumber {
+	fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		formatter
+			.debug_tuple("SerialNumber")
+			.field(&"[redacted]")
+			.finish()
+	}
+}
+
+/// Product and network details. MAC addresses are discarded; the serial is
+/// retained in memory for an on-demand UI tooltip only.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AccessoryInfo {
 	pub product_name: String,
@@ -106,6 +135,7 @@ pub struct AccessoryInfo {
 	pub firmware_version: String,
 	pub firmware_build_number: u32,
 	pub hardware_board_type: u16,
+	pub serial_number: SerialNumber,
 	pub wifi: Option<WifiInfo>,
 }
 
@@ -302,6 +332,17 @@ pub fn parse_accessory_info(payload: &Value) -> Result<AccessoryInfo> {
 		hardware_board_type: get_u64("hardwareBoardType")
 			.and_then(|value| u16::try_from(value).ok())
 			.unwrap_or(0),
+		serial_number: SerialNumber::new(
+			payload
+				.get("serialNumber")
+				.and_then(|value| {
+					value
+						.as_str()
+						.map(str::to_string)
+						.or_else(|| value.as_u64().map(|number| number.to_string()))
+				})
+				.unwrap_or_default(),
+		),
 		wifi,
 	})
 }
@@ -387,5 +428,16 @@ mod tests {
 			)
 			.is_err()
 		);
+	}
+
+	#[test]
+	fn serial_is_retained_but_redacted_from_debug() {
+		let info = parse_accessory_info(&json!({
+			"productName": "Elgato Key Light",
+			"serialNumber": "TESTSERIAL0001"
+		}))
+		.unwrap();
+		assert_eq!(info.serial_number.as_str(), "TESTSERIAL0001");
+		assert!(!format!("{info:?}").contains("TESTSERIAL0001"));
 	}
 }

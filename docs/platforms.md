@@ -17,7 +17,7 @@ The Windows UI is the second renderer over the shared session layer.
 
 - The API is plain HTTP on TCP 9123 with no authentication or encryption.
 - Use it only on a trusted local network.
-- Never store, print, or commit a serial number or MAC address.
+- Never write a serial number or MAC address into documentation, plans, prompts, logs, commits, or persisted configuration. MACs are discarded; a serial is held in memory only for the on-demand model-name tooltip.
 - Discovery requires IPv4 mDNS; devices without an IPv4 address are not added.
 - Animations require a persistent native HTTP connection and never use `curl`.
 - A superseded animation restores the original state before the next action writes.

@@ -237,7 +237,7 @@ GET /elgato/accessory-info
 
 The response contains the serial number and the network interface address.
 Treat both values as private data.
-This client discards them.
+This client discards the MAC address. It retains the serial number in memory only for an on-demand UI tooltip; the serial is never logged, serialized, or written to documentation, plans, commits, or configuration.
 
 ### WiFi details
 

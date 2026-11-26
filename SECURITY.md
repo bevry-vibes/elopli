@@ -11,7 +11,7 @@ Do not open a public issue for a vulnerability that could affect users on a shar
 
 ## Scope
 
-- The client discards device serial numbers and MAC addresses.
+- The client discards MAC addresses. Serial numbers are retained only in memory for an on-demand tooltip and are never persisted or logged.
 - `devices.json` and `links.json` are local and are ignored by Git.
 - The client has no cloud service, account system, or telemetry.
 - The HTTP API is plain HTTP on TCP 9123.

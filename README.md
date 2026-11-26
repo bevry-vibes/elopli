@@ -22,7 +22,7 @@ Verified on:
 - Key Light Air, firmware 1.0.3 (222)
 - Key Light, firmware 1.0.3 (222)
 
-Serial numbers and MAC addresses are discarded by the client.
+MAC addresses are discarded by the client. Serial numbers are retained in memory only for an on-demand tooltip and are never stored or logged.
 
 ## Screenshots
 

@@ -91,7 +91,7 @@ Rules:
 - Keep temperature in 143 to 344 mired. The device accepts out-of-range values and produces the wrong light.
 - Keep `on` at 0 or 1.
 - Do not call `/elgato/restart` or `/elgato/factory-reset` during normal control.
-- Discard the serial number and the network interface address. Never print, store, log, or commit them.
+- Discard the network interface address. Retain the serial number in memory only for an on-demand UI tooltip; never print, log, persist, or commit it, and never show it by default.
 
 Security stance:
 
@@ -378,6 +378,7 @@ The group actions run the same animation on every member of the group.
 - Keep the device session on a worker thread. Refresh and discovery run on child threads; animations run one thread per light.
 - The app uses the native transport only and never falls back to `curl`.
 - Store `devices.json` and `links.json` under `%APPDATA%\elopli`.
+- Hovering a card's model name reveals its serial number in a tooltip; the serial is hidden by default and never written to disk or logs.
 - Single instance uses a local named mutex. The second launch signals the first panel and exits.
 - Launch at Login uses `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
 - Dark and light themes follow `AppsUseLightTheme` and `WM_SETTINGCHANGE`.
@@ -386,9 +387,10 @@ The group actions run the same animation on every member of the group.
 
 ## 8. Data and privacy
 
-- Discard the serial number and MAC address at parse time.
+- Discard the MAC address at parse time.
+- Retain the serial number in memory only for an on-demand UI tooltip; never show it by default.
 - The client knows the IP address from the registry or from mDNS, not from the light API.
-- Never print, store, log, or commit a serial number or MAC address.
+- Never write a serial number or MAC address into documentation, plans, prompts, logs, commits, or persisted configuration.
 - Keep `devices.json` and `links.json` out of version control.
 - Commit `devices.example.json` only.
 - The API has no authentication and no encryption. Use it only on a trusted local network.
@@ -426,7 +428,7 @@ The group actions run the same animation on every member of the group.
 | D13 | Group creation syncs to the first card in UI order | The UI order becomes unstable or users expect another source. |
 | D14 | Durations in seconds, default 1.0 | Millisecond precision becomes necessary for very short animations. |
 | D15 | 500 ms tooltips | The delay feels too fast or too slow in use. |
-| D16 | Serial and MAC discarded | A feature needs a stable hardware identity. |
+| D16 | MAC discarded; serial retained in memory for an on-demand tooltip | The device API no longer exposes a serial, default-on display is requested, or the serial is exposed outside memory. |
 | D17 | No auth or encryption | The threat model changes or the client leaves the trusted LAN. |
 | D18 | macOS menu bar only | A full window becomes a product requirement. |
 | D19 | Windows UI is Win32 plus GDI+ | The tray-first panel needs no runtime dependency, and Direct2D HWND presentation failed on the Windows 11 test machine. | `windows-reactor` gains tray and visibility control with a self-contained runtime, or Direct2D presents reliably on the supported Windows releases. |

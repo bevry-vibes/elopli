@@ -21,7 +21,7 @@ this process is documented in the upstream repo's [local tweaks pattern](https:/
 
 ## project rules
 
-- Never print, store, log, or commit a device serial number or MAC address. The client discards both fields.
+- Never write a device serial number or MAC address into documentation, plan or prompt files, logs, commits, or persisted configuration. MAC addresses are discarded at parse time. A serial number may be retained in memory only for an on-demand UI tooltip, hidden by default.
 - Keep `devices.json` and `links.json` out of version control. Commit `devices.example.json` only.
 - The API has no authentication and no encryption. Use it only on a trusted local network.
 - Keep the CLI non-interactive and usable from Apple Shortcuts. Support absolute paths and JSON output.
