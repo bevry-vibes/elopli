@@ -1,0 +1,27 @@
+[package]
+name = "elopli-app-linux"
+description = "Native Linux tray app for Elopli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+linux = []
+
+[[bin]]
+name = "elopli-app"
+path = "src/main.rs"
+required-features = ["linux"]
+
+[target.'cfg(target_os = "linux")'.dependencies]
+elopli-core = { version = "0.1.0", path = "../../../crates/elopli-core" }
+elopli-session = { version = "0.1.0", path = "../../../crates/elopli-session" }
+gtk = { package = "gtk4", version = "0.11" }
+ksni = { version = "0.3.7", features = ["blocking"] }
+
+[lints]
+workspace = true

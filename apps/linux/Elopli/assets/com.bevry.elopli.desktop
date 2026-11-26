@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Elopli
+GenericName=Light Controller
+Comment=Control Elgato Key Light and Key Light Air devices
+Exec=elopli-app
+Icon=com.bevry.elopli
+Terminal=false
+Categories=Utility;GTK;
+Keywords=Elgato;Key Light;light;brightness;warmth;
+StartupNotify=false
+StartupWMClass=com.bevry.elopli

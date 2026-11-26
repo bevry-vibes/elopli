@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.bevry.elopli</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>RPL-1.5</project_license>
+  <name>Elopli</name>
+  <summary>Control Elgato Key Light devices</summary>
+  <description>
+    <p>
+      Elopli controls Elgato Key Light and Key Light Air devices over the local network.
+      It has no cloud service, account, or telemetry.
+    </p>
+    <p>
+      Power, brightness, warmth, WiFi details, power-on behaviour, pulse and sweep
+      animations, and linked lights are available from a tray panel.
+    </p>
+  </description>
+  <launchable type="desktop-id">com.bevry.elopli.desktop</launchable>
+  <url type="homepage">https://github.com/bevry-vibes/elopli</url>
+  <developer id="com.bevry">
+    <name>Benjamin Lupton</name>
+  </developer>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.1.0" date="2026-11-26"/>
+  </releases>
+  <categories>
+    <category>Utility</category>
+  </categories>
+  <keywords>
+    <keyword>Elgato</keyword>
+    <keyword>Key Light</keyword>
+    <keyword>light</keyword>
+    <keyword>brightness</keyword>
+    <keyword>warmth</keyword>
+  </keywords>
+  <provides>
+    <binary>elopli-app</binary>
+  </provides>
+</component>

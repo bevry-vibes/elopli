@@ -7,6 +7,7 @@ members = [
 	"crates/elopli-ffi",
 	"crates/uniffi-bindgen",
 	"apps/windows/Elopli",
+	"apps/linux/Elopli",
 ]
 
 [workspace.package]
