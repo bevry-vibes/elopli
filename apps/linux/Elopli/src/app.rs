@@ -837,6 +837,8 @@ pub(crate) struct Card {
 	temperature: gtk::Label,
 	error: gtk::Label,
 	menu: gtk::MenuButton,
+	desired_on: Rc<Cell<Option<bool>>>,
+	switching: Rc<Cell<bool>>,
 	grouped: Cell<Option<bool>>,
 	updating: Cell<bool>,
 }
@@ -968,7 +970,6 @@ impl Card {
 			.tooltip_text("WiFi details")
 			.build();
 		wifi.add_css_class("flat");
-		wifi.add_css_class("elopli-hover");
 		wifi.set_size_request(30, 30);
 		wifi.set_margin_end(7);
 		wifi.set_valign(gtk::Align::Center);
@@ -981,6 +982,8 @@ impl Card {
 		let power = gtk::Switch::new();
 		power.set_valign(gtk::Align::Center);
 		power_wrap.append(&power);
+		let desired_on = Rc::new(Cell::new(None::<bool>));
+		let switching = Rc::new(Cell::new(false));
 		{
 			let weak = Rc::downgrade(app);
 			let device_name = name.clone();
@@ -1001,7 +1004,15 @@ impl Card {
 		{
 			let weak = Rc::downgrade(app);
 			let device_name = name.clone();
+			let desired_on = Rc::clone(&desired_on);
+			let switching = Rc::clone(&switching);
 			power.connect_active_notify(move |switch| {
+				if desired_on.get() == Some(switch.is_active()) {
+					// The animated programmatic change reached its target.
+					switching.set(false);
+					return;
+				}
+				switching.set(false);
 				let Some(app) = weak.upgrade() else {
 					return;
 				};
@@ -1027,7 +1038,6 @@ impl Card {
 			.tooltip_text("Light menu")
 			.build();
 		menu.add_css_class("flat");
-		menu.add_css_class("elopli-menu");
 		menu.set_size_request(30, 30);
 		menu.set_direction(gtk::ArrowType::None);
 		menu.set_valign(gtk::Align::Center);
@@ -1129,6 +1139,8 @@ impl Card {
 			temperature,
 			error,
 			menu,
+			desired_on,
+			switching,
 			grouped: Cell::new(None),
 			updating: Cell::new(false),
 		})
@@ -1155,7 +1167,21 @@ impl Card {
 			self.subtitle.set_tooltip_text(None);
 		}
 
-		self.power.set_active(device.is_effectively_on());
+		let desired_on = device.is_effectively_on();
+		self.desired_on.set(Some(desired_on));
+		if self.power.is_active() != desired_on {
+			if !self.power.is_mapped() {
+				// The switch cannot animate before it is mapped.
+				self.power.set_active(desired_on);
+			} else if !self.switching.get() {
+				// GtkSwitch only animates through its activate path; set_active
+				// changes the handle position immediately.
+				self.switching.set(true);
+				if !self.power.activate() {
+					self.switching.set(false);
+				}
+			}
+		}
 
 		let brightness_value = snapshot
 			.live_brightness

@@ -24,7 +24,6 @@ switch slider {
     background-image: none;
     border: 1px solid rgba(0, 0, 0, 0.18);
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
-    transition: all 200ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
 switch:checked slider {
@@ -40,34 +39,6 @@ switch:checked slider {
     font-weight: 600;
 }
 
-menubutton.elopli-menu > button {
-    background: none;
-    background-image: none;
-    border: none;
-    box-shadow: none;
-}
-
-button.elopli-hover,
-menubutton.elopli-menu > button {
-    transition: background-color 120ms ease, box-shadow 120ms ease;
-}
-
-button.elopli-hover:hover,
-menubutton.elopli-menu > button:hover {
-    background-color: alpha(@theme_fg_color, 0.06);
-    box-shadow: inset 0 0 0 1px alpha(@theme_fg_color, 0.18);
-}
-
-button.elopli-hover:active,
-menubutton.elopli-menu > button:active,
-menubutton.elopli-menu > button:checked {
-    background-color: alpha(@theme_fg_color, 0.10);
-    box-shadow: inset 0 0 0 1px alpha(@theme_fg_color, 0.26);
-}
-
-menubutton.elopli-menu > button:focus {
-    box-shadow: none;
-}
 
 .elopli-hint {
     font-size: 11px;
