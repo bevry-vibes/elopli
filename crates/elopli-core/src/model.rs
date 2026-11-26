@@ -296,8 +296,12 @@ pub fn parse_accessory_info(payload: &Value) -> Result<AccessoryInfo> {
 			.and_then(Value::as_str)
 			.unwrap_or("")
 			.to_string(),
-		firmware_build_number: get_u64("firmwareBuildNumber").unwrap_or(0) as u32,
-		hardware_board_type: get_u64("hardwareBoardType").unwrap_or(0) as u16,
+		firmware_build_number: get_u64("firmwareBuildNumber")
+			.and_then(|value| u32::try_from(value).ok())
+			.unwrap_or(0),
+		hardware_board_type: get_u64("hardwareBoardType")
+			.and_then(|value| u16::try_from(value).ok())
+			.unwrap_or(0),
 		wifi,
 	})
 }
