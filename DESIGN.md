@@ -295,6 +295,11 @@ The distance-weighted budget and the endpoint hold provide the smoothness.
 - Multi-light intents run in parallel and report per-light outcomes.
 - An empty light selection is an error; only the explicit All Lights entity means all lights.
 - Native App Intents require team signing; an ad-hoc build is rejected by `linkd`.
+- Shortcuts' **Show When Run** option still defaults to on for these App Intents.
+  App Intents exposes background/foreground execution (`openAppWhenRun` / `supportedModes`), but no default for that toggle; these intents already run in the background, and that does not change the default.
+  An explicit `@Parameter(title: "Show When Run", default: false)` was tried on every intent.
+  Shortcuts accepted the metadata but crashed with an uncaught exception in `WFLinkAction initializeParameters` when the action was added or opened, so the parameter was removed.
+  The option remains a per-action Shortcuts setting until a safe default-off mechanism is found.
 
 ### 7.2 Cards and controls
 
@@ -409,6 +414,7 @@ The group actions run the same animation on every member of the group.
 - Scoop bucket and portable ZIP; Inno Setup is shelved.
 - A stable public repository remote for Elopli.
 - Accessibility, keyboard navigation, and localization are deferred until after v1.
+- Default Shortcuts' **Show When Run** to off for Elopli actions without crashing Shortcuts; no public App Intents API or safe metadata workaround is known.
 - The FFI is synchronous; a Windows/Linux UI must call it on a worker thread until async wrappers exist.
 - Extract the remaining macOS session logic (link graph, slider coordinator, discovery rows) into a shared crate before the Windows/Linux UIs.
 - Add a Windows/Linux CI matrix and real-hardware smoke tests.
