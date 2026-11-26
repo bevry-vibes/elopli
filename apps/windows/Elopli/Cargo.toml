@@ -1,0 +1,54 @@
+[package]
+name = "elopli-app"
+description = "Native Windows tray app for Elopli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+build = "build.rs"
+
+[features]
+default = []
+windows = []
+
+[[bin]]
+# The CLI binary is `elopli.exe`; Windows paths are case-insensitive, so the
+# app cannot also be named `Elopli.exe` in the same target directory.
+name = "ElopliApp"
+path = "src/main.rs"
+required-features = ["windows"]
+
+[target.'cfg(windows)'.dependencies]
+elopli-core = { version = "0.1.0", path = "../../../crates/elopli-core" }
+elopli-session = { version = "0.1.0", path = "../../../crates/elopli-session" }
+windows = { version = "0.62", features = [
+	"Win32_Foundation",
+	"Win32_Graphics_Direct2D",
+	"Win32_Graphics_Direct2D_Common",
+	"Win32_Graphics_DirectWrite",
+	"Win32_Graphics_Dwm",
+	"Win32_Graphics_Dxgi_Common",
+	"Win32_Graphics_Gdi",
+	"Win32_Graphics_GdiPlus",
+	"Win32_Security",
+	"Win32_System_Com",
+	"Win32_System_LibraryLoader",
+	"Win32_System_Threading",
+	"Win32_UI_Controls",
+	"Win32_UI_HiDpi",
+	"Win32_UI_Input_KeyboardAndMouse",
+	"Win32_UI_Shell",
+	"Win32_UI_WindowsAndMessaging",
+] }
+winreg = "0.56"
+windows-numerics = "0.3"
+
+[build-dependencies]
+embed-resource = "3"
+
+# This crate is the Win32 platform boundary. The core, session, CLI, and FFI
+# crates keep the workspace's unsafe_code = "forbid".
+[lints.rust]
+unsafe_code = "allow"
