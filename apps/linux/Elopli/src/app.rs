@@ -115,7 +115,9 @@ impl App {
 		let title = gtk::Label::new(Some("Elopli"));
 		title.add_css_class("elopli-title");
 		title.set_xalign(0.0);
+		title.set_valign(gtk::Align::Center);
 		title.set_margin_start(4);
+		title.set_margin_top(2);
 		header.pack_start(&title);
 		window.set_titlebar(Some(&header));
 
@@ -834,6 +836,7 @@ pub(crate) struct Card {
 	temperature: gtk::Label,
 	error: gtk::Label,
 	menu: gtk::MenuButton,
+	_value_group: gtk::SizeGroup,
 	grouped: Cell<Option<bool>>,
 	updating: Cell<bool>,
 }
@@ -1055,6 +1058,10 @@ impl Card {
 		rows.append(&error);
 		content.append(&rows);
 
+		let value_group = gtk::SizeGroup::new(gtk::SizeGroupMode::Horizontal);
+		value_group.add_widget(&brightness_label);
+		value_group.add_widget(&warmth_label);
+
 		{
 			let weak = Rc::downgrade(app);
 			let device_name = name.clone();
@@ -1121,6 +1128,7 @@ impl Card {
 			temperature,
 			error,
 			menu,
+			_value_group: value_group,
 			grouped: Cell::new(None),
 			updating: Cell::new(false),
 		})
