@@ -1292,6 +1292,37 @@ impl Card {
 		}
 
 		self.updating.set(false);
+		self.align_power_controls();
+	}
+
+	/// Align the on knob with the sliders' rightmost thumb and keep equal
+	/// gaps between the WiFi button, the power switch, and the card menu.
+	fn align_power_controls(&self) {
+		let Some((slider_x, _)) = self
+			.brightness
+			.widget()
+			.translate_coordinates(&self.root, 0.0, 0.0)
+		else {
+			return;
+		};
+		let Some((switch_x, _)) = self.power.translate_coordinates(&self.root, 0.0, 0.0) else {
+			return;
+		};
+		let slider_width = f64::from(self.brightness.widget().width());
+		let switch_width = f64::from(self.power.width());
+		let switch_height = f64::from(self.power.height());
+		if slider_width <= 0.0 || switch_width <= 0.0 {
+			return;
+		}
+		let thumb = slider_x + slider_width - crate::slider::INSET;
+		let knob = switch_x + switch_width - switch_height / 2.0;
+		let current = f64::from(self.power_wrap.margin_end());
+		let target = (current + knob - thumb).max(0.0).round();
+		if (target - current).abs() <= 0.5 {
+			return;
+		}
+		self.power_wrap.set_margin_end(target as i32);
+		self.wifi.set_margin_end(target as i32);
 	}
 
 	fn menu_model(&self, grouped: bool) -> gio::Menu {
