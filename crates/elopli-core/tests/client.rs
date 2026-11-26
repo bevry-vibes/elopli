@@ -204,6 +204,14 @@ fn client(port: u16) -> ElopliClient {
 	)
 }
 
+fn wait_for_updates(state: &Arc<Mutex<FakeState>>, count: usize) {
+	let deadline = Instant::now() + Duration::from_secs(5);
+	while state.lock().unwrap().updates.len() < count {
+		assert!(Instant::now() < deadline, "the pulse never wrote a frame");
+		std::thread::sleep(Duration::from_millis(10));
+	}
+}
+
 #[test]
 fn reads_state_and_sends_only_named_fields() {
 	let (port, state) = start_server();
@@ -344,7 +352,7 @@ fn actions_cancel_a_running_pulse_and_win() {
 			.unwrap()
 	});
 
-	std::thread::sleep(Duration::from_millis(150));
+	wait_for_updates(&state, 1);
 	let action = client(port)
 		.update(Update {
 			brightness: Some(23),
@@ -398,7 +406,7 @@ fn cancel_pulse_restores_the_original_state() {
 			.unwrap()
 	});
 
-	std::thread::sleep(Duration::from_millis(150));
+	wait_for_updates(&state, 1);
 	client(port).cancel_pulse().unwrap();
 
 	let outcome = handle.join().unwrap();

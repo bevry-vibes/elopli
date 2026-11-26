@@ -27,6 +27,32 @@ const EXTERNAL_CHECK_INTERVAL: Duration = Duration::from_millis(250);
 /// eventually stops the light's HTTP server.
 const ANIMATION_TRANSPORT_ERROR: &str = "pulse and sweep need a persistent HTTP connection; the light drops repeated short-lived connections. Use the native transport and grant local network access if the platform asks for it.";
 
+/// Enforces the frame rate cap across segment boundaries. A segment's first
+/// frame can otherwise arrive less than 100 ms after the previous segment's
+/// last frame when a write is slow.
+struct FramePacer {
+	last: Option<Instant>,
+}
+
+impl FramePacer {
+	fn new() -> Self {
+		Self { last: None }
+	}
+
+	fn wait(&self) {
+		if let Some(last) = self.last
+			&& let Some(remaining) =
+				(Duration::from_millis(u64::from(FRAME_INTERVAL_MS))).checked_sub(last.elapsed())
+		{
+			std::thread::sleep(remaining);
+		}
+	}
+
+	fn mark(&mut self) {
+		self.last = Some(Instant::now());
+	}
+}
+
 pub struct ElopliClient {
 	host: String,
 	port: u16,
@@ -430,6 +456,7 @@ impl ElopliClient {
 		let final_on = if originally_on { Some(true) } else { None };
 		let mut expected = original;
 		let mut last_external_check = Instant::now();
+		let mut pacer = FramePacer::new();
 		let mut durations =
 			config.segment_durations(original.temperature, original.brightness, originally_on)?;
 
@@ -448,10 +475,12 @@ impl ElopliClient {
 				temperature: Some(warm),
 				..Update::default()
 			})?;
+			pacer.mark();
 			expected = self.write_pulse_update(Update {
 				on: Some(true),
 				..Update::default()
 			})?;
+			pacer.mark();
 			if turn_on_ms > 0
 				&& start_brightness > 2
 				&& let Some(outcome) = self.ramp_to(
@@ -467,6 +496,7 @@ impl ElopliClient {
 					false,
 					&mut expected,
 					Some(&mut last_external_check),
+					&mut pacer,
 				)? {
 				return Ok(outcome);
 			}
@@ -478,6 +508,7 @@ impl ElopliClient {
 				brightness: Some(start_brightness),
 				..Update::default()
 			})?;
+			pacer.mark();
 		}
 
 		// An on light moves from its current temperature to the warm end first.
@@ -496,6 +527,7 @@ impl ElopliClient {
 				true,
 				&mut expected,
 				Some(&mut last_external_check),
+				&mut pacer,
 			)? {
 			return Ok(outcome);
 		}
@@ -515,6 +547,7 @@ impl ElopliClient {
 				true,
 				&mut expected,
 				Some(&mut last_external_check),
+				&mut pacer,
 			)? {
 				return Ok(outcome);
 			}
@@ -532,6 +565,7 @@ impl ElopliClient {
 					true,
 					&mut expected,
 					Some(&mut last_external_check),
+					&mut pacer,
 				)? {
 				return Ok(outcome);
 			}
@@ -552,6 +586,7 @@ impl ElopliClient {
 			originally_on,
 			&mut expected,
 			Some(&mut last_external_check),
+			&mut pacer,
 		)? {
 			return Ok(outcome);
 		}
@@ -600,6 +635,7 @@ impl ElopliClient {
 			..original
 		};
 		let mut last_external_check = Instant::now();
+		let mut pacer = FramePacer::new();
 
 		if !originally_on {
 			// Turn on at the 2% floor first, then rise. This avoids jumping on
@@ -614,6 +650,7 @@ impl ElopliClient {
 					brightness: Some(2),
 					..Update::default()
 				})?;
+				pacer.mark();
 				std::thread::sleep(Duration::from_millis(u64::from(turn_on_ms)));
 				expected = state;
 				from = LightState {
@@ -638,6 +675,7 @@ impl ElopliClient {
 				false,
 				&mut expected,
 				Some(&mut last_external_check),
+				&mut pacer,
 			)? {
 				return Ok(outcome);
 			}
@@ -670,6 +708,7 @@ impl ElopliClient {
 		includes_temperature: bool,
 		expected: &mut LightState,
 		mut last_external_check: Option<&mut Instant>,
+		pacer: &mut FramePacer,
 	) -> Result<Option<PulseOutcome>> {
 		// Send immediate keyframes at a fixed interval. The light applies each
 		// step at once and its stored colorChangeDurationMs smooths the change.
@@ -727,7 +766,9 @@ impl ElopliClient {
 			if includes_temperature {
 				update.temperature = Some(lerp_u16(from.temperature, to_temperature, progress));
 			}
+			pacer.wait();
 			*expected = self.write_pulse_update(update)?;
+			pacer.mark();
 			let deadline = started + Duration::from_millis(u64::from(step_ms) * u64::from(step));
 			if let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
 				std::thread::sleep(remaining);
