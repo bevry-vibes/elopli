@@ -17,7 +17,11 @@ use serde_json::{Map, Value, json};
 macro_rules! out {
 	($($arg:tt)*) => {{
 		let mut stdout = std::io::stdout().lock();
-		let _ = writeln!(stdout, $($arg)*);
+		if let Err(error) = writeln!(stdout, $($arg)*)
+			&& error.kind() == std::io::ErrorKind::BrokenPipe
+		{
+			std::process::exit(0);
+		}
 	}};
 }
 
@@ -1557,7 +1561,9 @@ fn run(cli: Cli) -> Result<u8> {
 			}
 			Ok(exit_code(&records))
 		}
-		_ => unreachable!(),
+		Command::Config(_) | Command::Discover(_) => Err(ElopliError::Unsupported(
+			"this command is handled before the device registry is loaded".into(),
+		)),
 	}
 }
 

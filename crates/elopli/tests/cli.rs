@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::process::Command;
 
 fn binary() -> Command {
@@ -56,6 +57,6 @@ fn config_path_json_is_machine_readable() {
 	assert!(
 		payload["path"]
 			.as_str()
-			.is_some_and(|path| path.starts_with('/'))
+			.is_some_and(|path| Path::new(path).is_absolute())
 	);
 }
