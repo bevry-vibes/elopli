@@ -11,6 +11,12 @@ export CODE_SIGNING_ALLOWED="${CODE_SIGNING_ALLOWED:-YES}"
 
 cd "$ROOT"
 
+# Cargo.toml is the single version source. The build number is the commit
+# count, so macOS and Windows packages can share it.
+MARKETING_VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' "$ROOT/Cargo.toml" | head -n 1)
+CURRENT_PROJECT_VERSION=$(git -C "$ROOT" rev-list --count HEAD 2>/dev/null || echo 1)
+export MARKETING_VERSION CURRENT_PROJECT_VERSION
+
 if [ "$CONFIG" = "release" ]; then
 	cargo build --locked --release -p elopli-ffi
 	LIB="$TARGET_DIR/release/libelopli_ffi.a"

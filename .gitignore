@@ -42,6 +42,15 @@ apps/macos/Elopli/build/
 apps/macos/Elopli/Elopli.xcodeproj/
 apps/macos/Elopli/Generated/
 
+# Windows app build and packaging artifacts
+apps/windows/Elopli/dist/
+*.exe
+*.pdb
+*.msi
+*.msix
+*.appx
+*.zip
+
 # =====================================
 # CUSTOM
 
@@ -51,5 +60,6 @@ apps/macos/Elopli/Generated/
 !docs/
 !docs/**
 
-# Local device registry (contains no serials, but stays machine-local)
+# Local device registry and link groups (they stay machine-local)
 devices.json
+links.json
