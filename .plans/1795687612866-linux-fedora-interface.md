@@ -155,3 +155,6 @@ The first Soar install exposed the difference between a portable tarball and a d
 - The installed AppImage is live and the tray is registered. The remaining user check is the drop half of card reordering.
 
 - The power switch is measured against the brightness slider at runtime. Its margin and the WiFi button's margin are both set so the on-knob centre matches the slider's rightmost thumb centre and the gaps on each side of the switch stay equal. The measured offset was 2 px in the Fedora 45 Adwaita dark theme.
+
+- A horizontal `GtkSizeGroup` now binds the brightness and warmth value labels, so both slider tracks end at the same X even when one label reads `100%` and the other `0%`. The rightmost thumb of both sliders and the on knob of the power switch share one column in the rendered panel.
+- The header title is vertically centred and nudged 2 px down to sit on the same centreline as the action icons.

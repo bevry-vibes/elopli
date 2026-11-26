@@ -110,3 +110,11 @@ Answer: no. Plain GTK4 is sufficient for this delivery.
 > move it left enough so that if the sliders are rightmost, their circle and the on toggle circle and perfectly aligned
 >
 > then even the spacing between it and the wifi icon and the menu icon
+
+> the sliders when rightmost aren't aligned either, when all sliders and all toggles are on, their buttons should be correcftly aligned on the lattitude axis
+>
+> elopli in the titlebar doesn't seem correctlyaligned on the longitutde axiswith the menubar icons
+
+> I will clarify, when all slider buttons are moved rightmost, their buttons do not align; temp button at rightmost and brightness button at rightmost are not aligned, they need to be aligned, and aligned with the button of each light's on/off toggles
+>
+> Elopli in the header, a separate issue is too high, it needs to be lowered to align correcftly with the icons to its right
