@@ -60,7 +60,7 @@ Reciprocity was checked with `agent-detect check-reciprocal` in recipe mode, usi
 
 | # | Decision | Reason | Revisit if |
 | --- | --- | --- | --- |
-| D19 | Windows UI: Win32 + `windows` crate + Direct2D/DirectWrite | Tray-first popup, no runtime dependency, portable ZIP, one native window, full control of layout and DPI. `windows-reactor` has no tray or visibility control and needs the Windows App SDK. | `windows-reactor` gains tray/visibility APIs and a self-contained deployment story, or the product accepts a normal WinUI window and runtime. |
+| D19 | Windows UI: Win32 + `windows` crate + GDI+ | Tray-first popup, no runtime dependency, portable ZIP, one native window, full control of layout and DPI. `windows-reactor` has no tray or visibility control and needs the Windows App SDK. Direct2D HWND targets also presented blank in the test environment, so the panel uses GDI+ (revised after the spike). | `windows-reactor` gains tray/visibility APIs and a self-contained deployment story, or Direct2D presents reliably on the supported Windows releases. |
 | D20 | Shared `elopli-session` crate | One implementation of grouping, revisions, slider coalescing, discovery rows, and animation lifecycle. Windows uses it now; macOS migrates later. | A UI needs behaviour the crate cannot express without platform code. |
 | D21 | Tray-first panel with Ctrl-click linking | Matches the menu-bar product model without a Dock/taskbar window. Ctrl is the Windows multi-select modifier. | Windows users expect a normal window or a different modifier. |
 | D22 | Windows 10 1809+ x64 for v1; ARM64 later | Covers Direct2D/DirectWrite and per-monitor DPI; ARM64 adds CI and package work. | Demand or a Windows-on-ARM release requirement appears. |
@@ -84,3 +84,14 @@ The Windows app uses the native transport only. It never falls back to `curl`, s
 - `Elopli.exe --smoke-test` reads the registry and prints per-light state; exit 0 when every light answers.
 - The panel opens from the tray, shows one card per light, writes power/brightness/warmth, runs pulse and sweep, discovers lights, links with Ctrl, reorders by drag, and quits without leaving a light mid-animation.
 - `scripts/build-windows.ps1` produces a portable ZIP with the app, CLI, docs, and `SHA256SUMS`.
+
+## Delivery notes (2026-11-26)
+
+- The Windows shell is Win32 with a tray icon and a `WS_POPUP` panel. The renderer is GDI+, not Direct2D: a minimal Direct2D HWND test also presented a blank window on the Windows 11 test machine, while GDI+ rendered correctly. DESIGN.md D19 records the change and the revisit trigger.
+- The shared `elopli-session` crate now owns refresh plans, link groups, slider coalescing, discovery rows, and animation hand-off. The Windows app uses it; the macOS Swift session is migration debt.
+- Refresh and discovery run on child threads in the Windows worker, so offline-light timeouts cannot starve UI commands.
+- The GNU local build required two fixes: `windres` output must be linked as an object instead of an archive, and the release build must be cleaned after changing `build.rs` so the resource link argument is applied. CI uses a clean MSVC checkout.
+- The app icon and version resource are embedded and visible through `FileVersionInfo`.
+- Real-hardware mDNS discovery found the Key Light Air and Key Light on the test network, and the discovery sheet rendered the Added/Missing/Add states. The protocol read against those addresses was stopped after it did not return promptly, so a full hardware read/write smoke test remains open.
+- Local checks: workspace tests, fmt, clippy (workspace and Windows app), docs, and `cargo deny check` pass with the GNU toolchain. The CI MSVC job and macOS build were not run from this Windows session.
+- The portable ZIP, Scoop manifest, SHA-256 checksums, screenshots, README, DESIGN, platform plan, privacy notes, third-party notices, and release workflow are in place.

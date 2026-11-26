@@ -13,6 +13,11 @@ The format follows Keep a Changelog, and the project uses semantic versioning.
 - Parallel multi-light App Intent actions with per-light outcomes.
 - A termination hook that cancels animations and waits for their restore.
 - A CI matrix for macOS, Linux, Windows, cross-target checks, docs, and the macOS app.
+- A native Windows tray app with cards, linkage, pulse and sweep sheets, discovery, dark/light themes, single instance, and Launch at Login.
+- A shared `elopli-session` crate for grouping, refresh revisions, live slider writes, discovery rows, and animation hand-off.
+- A Windows portable ZIP, generated Scoop manifest, checksums, icon, and version resource.
+- A Windows app CI job and `scripts/build-windows.ps1`.
+- Ctrl-click linking and `links.json` persistence on Windows.
 
 ### Changed
 
@@ -25,6 +30,9 @@ The format follows Keep a Changelog, and the project uses semantic versioning.
 - Group links are maximal, non-overlapping card groups; field-only links no longer show group actions.
 - Linked slider writes use one coordinator per target group.
 - Accessibility and localization are explicitly deferred until after v1.
+- Windows refresh and discovery run off the command thread so offline lights cannot starve UI actions.
+- mDNS picks a deterministic private IPv4 address and surfaces browse failures.
+- The workspace version in `Cargo.toml` is the single version source for both apps.
 
 ### Fixed
 
@@ -39,3 +47,8 @@ The format follows Keep a Changelog, and the project uses semantic versioning.
 - Offline lights show the error and power-cycle advice instead of stale WiFi details.
 - Group sync writes exact mired values and no longer leaves overlapping card groups.
 - Invalid updates and unsupported transports are rejected before cancelling a running animation.
+- The CLI config-path test passes on Windows, and tilde and state-directory expansion handle both separators.
+- The one-time `curl --version` probe no longer flashes a console on Windows.
+- Registry replacement retries Windows sharing violations and keeps the `.json` extension on temporary files.
+- Animation frames keep the 10 Hz floor across segment boundaries, including after a slow write.
+- Device names compare case-insensitively for Unicode, and accessory integers no longer truncate silently.

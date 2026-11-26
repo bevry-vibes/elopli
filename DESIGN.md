@@ -2,7 +2,7 @@
 
 Assisted-by: OpenCode · DeepSeek V4.1 Flash <opencode-opencodego-deepseekv41flash@local>
 
-**Status:** evergreen design reference · last agreed 2026-11-26 · product name: Elopli · core: Rust · first UI: macOS SwiftUI.
+**Status:** evergreen design reference · last agreed 2026-11-26 · product name: Elopli · core: Rust · UIs: macOS SwiftUI, Windows Win32/GDI+.
 
 This document records what is true now, why it is true, and what would make us revisit it.
 It is not a changelog.
@@ -42,15 +42,18 @@ Non-goals:
 | CLI | Rust | Non-interactive, scriptable, usable from Shortcuts and the shell. |
 | macOS UI | SwiftUI `MenuBarExtra` with `LSUIElement` | Native menu-bar app with no Dock icon. |
 | Rust to Swift bridge | UniFFI | Generated bindings keep the boundary explicit. |
-| Windows UI | Rust with `windows-reactor` | Planned; same core, native controls. |
+| Shared session layer | Rust `elopli-session` | Grouping, refresh revisions, slider coalescing, discovery rows, and animation hand-off live in one place. |
+| Windows UI | Rust with the `windows` crate, Win32 tray/popup, and GDI+ panel rendering | Native tray app with no runtime dependency. Direct2D HWND targets did not present on the Windows 11 test machine; GDI+ is the reliable v1 renderer. |
 | Linux UI | Rust with `gtk4-rs` and `ksni` | Planned; GNOME needs the AppIndicator extension. |
 | Linux packaging | AppImage built with `appimagetool`/`linuxdeploy`, distributed through Soar | Flatpak is shelved. |
-| Windows packaging | Scoop bucket and a portable ZIP | Inno Setup is shelved. |
+| Windows packaging | Portable ZIP and a generated Scoop manifest | Inno Setup is shelved. Authenticode is optional. |
 | macOS signing | Apple Development team signing | App Intents do not register from an ad-hoc build. |
 
 The CLI is a thin wrapper around the core.
-The macOS UI is currently a renderer plus a session layer for grouping, live slider writes, config reloads, and discovery presentation.
 The core owns validation, transport, discovery, registry persistence, and animation; it depends on platform services such as `dirs`, `mdns-sd`, file locks, and `curl` only through the transport layer.
+The session layer owns grouping, live slider writes, config reloads, refresh revisions, discovery presentation, and animation state.
+The Windows app renders a `SessionSnapshot` and sends commands to a worker thread.
+The macOS app still keeps its Swift session layer; migrating it to `elopli-session` is an open item.
 A UI may present state, but it must not implement protocol rules of its own.
 
 ## 4. Device protocol and transport
@@ -283,7 +286,7 @@ The distance-weighted budget and the endpoint hold provide the smoothness.
 | Native tooltip delay | `NSInitialToolTipDelay = 500` | System tooltips took too long. |
 | WiFi details hidden in the system tooltip | 500 ms custom popover with SSID, frequency, RSSI, quality, and IP | The details need multiple lines and a fast reveal. |
 
-## 7. macOS app design
+## 7. Native app design
 
 ### 7.1 Shell
 
@@ -364,12 +367,29 @@ The group actions run the same animation on every member of the group.
 - The WiFi popover shows the SSID, frequency, RSSI, quality, and the light's IP address.
 - A missing light shows the error and the power-cycle advice.
 
+### 7.7 Windows tray app
+
+- Use a Win32 `WS_POPUP` window with `WS_EX_TOOLWINDOW` and `WS_EX_TOPMOST`; there is no taskbar button.
+- Show and hide the panel from a `Shell_NotifyIconW` tray icon; right-click opens the tray menu.
+- Position the panel above the notification area and clamp it to the monitor work area.
+- Render the panel with GDI+ at the monitor DPI. Use solid brushes, paths, and a sliced gradient for the warmth track.
+- Use native EDIT controls for rename and duration input. The parent uses `WS_CLIPCHILDREN` so GDI+ never overpaints a child control.
+- Use Ctrl-click for links, matching the Windows multi-select modifier. Pending selections use yellow; committed links use magenta.
+- Keep the device session on a worker thread. Refresh and discovery run on child threads; animations run one thread per light.
+- The app uses the native transport only and never falls back to `curl`.
+- Store `devices.json` and `links.json` under `%APPDATA%\elopli`.
+- Single instance uses a local named mutex. The second launch signals the first panel and exits.
+- Launch at Login uses `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
+- Dark and light themes follow `AppsUseLightTheme` and `WM_SETTINGCHANGE`.
+- The release executable is a GUI-subsystem binary; the debug build keeps a console for `--smoke-test`.
+- The version resource comes from `Cargo.toml`, the build number from the Git commit count.
+
 ## 8. Data and privacy
 
 - Discard the serial number and MAC address at parse time.
 - The client knows the IP address from the registry or from mDNS, not from the light API.
 - Never print, store, log, or commit a serial number or MAC address.
-- Keep `devices.json` out of version control.
+- Keep `devices.json` and `links.json` out of version control.
 - Commit `devices.example.json` only.
 - The API has no authentication and no encryption. Use it only on a trusted local network.
 - The client needs no secrets.
@@ -379,9 +399,13 @@ The group actions run the same animation on every member of the group.
 - Build the macOS app with `./scripts/build-macos.sh`.
 - Set `DEVELOPMENT_TEAM` to a real team for App Intents.
 - Do not commit `apps/macos/Elopli/Generated`, `apps/macos/Elopli/build`, or `apps/macos/Elopli/Elopli.xcodeproj`.
-- The Rust core stays free of UI and platform code.
+- Build the Windows app with `cargo build -p elopli-app --features windows --release`.
+- Package Windows with `./scripts/build-windows.ps1`; it writes the portable ZIP, `SHA256SUMS`, and a Scoop manifest.
+- Sign Windows releases with Authenticode when a certificate is available.
+- The Rust core and session layer stay free of UI and platform code.
 - The CLI stays non-interactive and supports absolute paths and JSON output.
 - macOS requires Local Network permission for the app or its parent process.
+- Windows needs a private-network firewall rule for mDNS and TCP 9123.
 
 ## 10. Decision register
 
@@ -405,16 +429,22 @@ The group actions run the same animation on every member of the group.
 | D16 | Serial and MAC discarded | A feature needs a stable hardware identity. |
 | D17 | No auth or encryption | The threat model changes or the client leaves the trusted LAN. |
 | D18 | macOS menu bar only | A full window becomes a product requirement. |
+| D19 | Windows UI is Win32 plus GDI+ | The tray-first panel needs no runtime dependency, and Direct2D HWND presentation failed on the Windows 11 test machine. | `windows-reactor` gains tray and visibility control with a self-contained runtime, or Direct2D presents reliably on the supported Windows releases. |
+| D20 | Shared `elopli-session` crate | Grouping, revisions, slider writes, discovery rows, and animation state must not be reimplemented per UI. | A UI needs behaviour that the platform-free crate cannot express. |
+| D21 | Windows links use Ctrl-click | Ctrl is the Windows multi-select modifier and matches the macOS Command-click model. | Windows users expect another modifier or a context-menu workflow. |
+| D22 | Windows 10 1809+ x64 for v1 | Covers the Win32 APIs and DPI support in use without an ARM64 package. | Windows on ARM becomes a release requirement. |
+| D23 | Portable ZIP and Scoop for Windows | The platform plan elected ZIP/Scoop over Inno Setup; Authenticode is a release-time choice. | A signed installer or Store distribution becomes required. |
+| D24 | Windows app uses the native transport only | A persistent connection is a safety rule for animations, and a GUI process must not flash a console through `curl`. | The native transport cannot be made reliable on a supported Windows release. |
 
 ## 11. Open items
 
-- Windows UI with `windows-reactor`.
 - Linux UI with `gtk4-rs` and `ksni`.
 - AppImage packaging; Flatpak is shelved.
-- Scoop bucket and portable ZIP; Inno Setup is shelved.
+- Windows Authenticode signing and a public Scoop bucket.
+- Windows ARM64.
 - A stable public repository remote for Elopli.
 - Accessibility, keyboard navigation, and localization are deferred until after v1.
 - Default Shortcuts' **Show When Run** to off for Elopli actions without crashing Shortcuts; no public App Intents API or safe metadata workaround is known.
-- The FFI is synchronous; a Windows/Linux UI must call it on a worker thread until async wrappers exist.
-- Extract the remaining macOS session logic (link graph, slider coordinator, discovery rows) into a shared crate before the Windows/Linux UIs.
-- Add a Windows/Linux CI matrix and real-hardware smoke tests.
+- Migrate the macOS session logic (link graph, slider coordinator, discovery rows) to `elopli-session`; the Windows app already uses the shared crate.
+- Real-hardware Windows smoke tests and a Windows/Linux CI matrix.
+- Windows discovery needs a firewall and mDNS diagnostic in the UI when a browse returns nothing.

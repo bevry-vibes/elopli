@@ -1,19 +1,20 @@
 # Elopli
 
 Elopli controls Elgato Key Light and Key Light Air devices over the local network.
-It has a native macOS menu-bar app, a Rust CLI, and a shared Rust core.
+It has a native macOS menu-bar app, a native Windows tray app, a Rust CLI, and a shared Rust core.
 
-The macOS interface is a card for each light.
+The macOS and Windows interfaces show a card for each light.
 Each card has power, brightness, warmth, WiFi details, rename, and power-on behaviour.
-The app has no Dock icon and no draggable window.
-It appears in the menu bar.
+The macOS app has no Dock icon and no draggable window.
+The Windows app has no taskbar button.
+Both appear as a menu-bar or notification-area panel.
 
 Evergreen design decisions are in [DESIGN.md](DESIGN.md).
 
 ## Status
 
-macOS is implemented.
-Windows and Fedora are planned with native UIs on the same Rust core.
+macOS and Windows are implemented.
+Fedora is planned with a native UI on the same Rust core.
 Accessibility and localization are planned after v1.
 
 Verified on:
@@ -42,6 +43,20 @@ Each light's menu opens the pulse and sweep editors.
   <img src="docs/screenshots/sweep.png" width="460" alt="Sweep editor with a count of 1, a 1.0s duration, and brightness set to N/A">
 </p>
 
+The Windows app is a native tray panel with the same card layout, sheets, and link colours.
+
+<p>
+  <img src="docs/screenshots/windows-panel.png" width="460" alt="Windows tray panel with three light cards and linked cards">
+</p>
+
+<p>
+  <img src="docs/screenshots/windows-panel-dark.png" width="460" alt="Windows tray panel in dark mode">
+</p>
+
+<p>
+  <img src="docs/screenshots/windows-pulse.png" width="460" alt="Windows pulse sheet with a count of 3 and a 1.0s duration">
+</p>
+
 ## Features
 
 - Power on and off.
@@ -53,7 +68,8 @@ Each light's menu opens the pulse and sweep editors.
 - WiFi icon with SSID, frequency, RSSI, quality, and address on hover.
 - mDNS discovery with Added, Missing, and address Update states.
 - Native Apple Shortcuts actions with a multi-select light picker and per-action icons.
-- Link lights or individual controls with Command-click.
+- Native Windows tray app with a dark and light theme, single instance, and Launch at Login.
+- Link lights or individual controls with Command-click on macOS or Ctrl-click on Windows.
 - Pulse brightness from the current value to a peak, then through peak-to-minimum cycles, then back to the original values.
   A count of 3 means three peak-to-minimum fades.
   The low defaults to 0% (off).
@@ -117,6 +133,13 @@ macOS app:
 - Rust 1.100
 - `xcodegen` 2.48 or later (`brew install xcodegen`)
 
+Windows app:
+
+- Windows 10 1809 or later, x64
+- Rust 1.100
+- Visual Studio Build Tools 2022 with the Desktop development with C++ workload for an MSVC build
+- A MinGW-w64 GCC toolchain on `PATH` instead, for a local GNU build
+
 CLI:
 
 - Rust 1.100
@@ -169,6 +192,28 @@ The team-signed build registers the App Intents with Shortcuts.
 A team ID is shown in Xcode under Settings > Accounts.
 Without a team-signed build, use the CLI through **Run Shell Script** in Shortcuts.
 
+## Build the Windows app
+
+```powershell
+cargo build --locked -p elopli-app --features windows --release
+.\target\release\ElopliApp.exe
+```
+
+Build a portable ZIP, checksums, and a Scoop manifest:
+
+```powershell
+pwsh -NoProfile -File scripts\build-windows.ps1
+```
+
+The app adds a lightbulb to the notification area.
+Left-click it to open the panel, and right-click it for Refresh, All On, All Off, Discover Lights, Launch at Login, Reveal Config, and Quit.
+Hold Ctrl and click a card, toggle, or slider to link lights; pending selections use yellow and committed links use magenta.
+Drag a card onto another card to swap their positions.
+Press Esc to close a sheet or hide the panel.
+
+See [docs/windows.md](docs/windows.md) for firewall, mDNS, autostart, signing, and smoke-test notes.
+Use `-Toolchain 1.100.0-x86_64-pc-windows-gnu` with the build script for a local GNU build.
+
 ## Build the CLI
 
 ```sh
@@ -206,9 +251,10 @@ Run `elopli discover --write` to add them to the registry.
 Only devices that advertise an IPv4 address are written.
 
 The CLI prefers `./devices.json` when it exists, so development and tests can use a local registry.
-The macOS app and App Intents always use the platform config path.
+The macOS app, its App Intents, and the Windows app always use the platform config path.
 Run `elopli config path` to see which file the CLI will use.
-The app reloads the registry every five seconds and detects conflicting writes.
+The apps reload the registry every five seconds and detect conflicting writes.
+Link groups are stored in `links.json` beside the registry.
 
 Set `ELOPLI_CONFIG` or pass `--config` to use another file.
 The loader accepts a UTF-8 BOM, validates names and hosts case-insensitively, writes atomically, and uses a file lock.
@@ -265,7 +311,7 @@ A write sends a partial JSON object and returns the new state.
 Read [docs/api.md](docs/api.md) for the protocol notes.
 Read [docs/shortcuts.md](docs/shortcuts.md) for the Shortcuts actions.
 Read [docs/platforms.md](docs/platforms.md) for the Windows/Linux plan.
-Read [CHANGELOG.md](CHANGELOG.md) for release history.
+Read [CHANGELOG.md](CHANGELOG.md) for release history and [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for dependency licenses.
 
 ## Security
 
@@ -293,8 +339,17 @@ cargo deny check
 ./scripts/build-macos.sh
 ```
 
+On Windows, also build and lint the app with its feature enabled:
+
+```powershell
+cargo build --locked -p elopli-app --features windows --release
+cargo clippy -p elopli-app --features windows --all-targets --locked -- -D warnings
+```
+
 The macOS app is in `apps/macos/Elopli`.
+The Windows app is in `apps/windows/Elopli`.
 The shared core is in `crates/elopli-core`.
+The shared session layer is in `crates/elopli-session`.
 The UniFFI bridge is in `crates/elopli-ffi`.
 The CLI is in `crates/elopli`.
 

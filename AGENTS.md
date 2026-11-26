@@ -22,7 +22,7 @@ this process is documented in the upstream repo's [local tweaks pattern](https:/
 ## project rules
 
 - Never print, store, log, or commit a device serial number or MAC address. The client discards both fields.
-- Keep `devices.json` out of version control. Commit `devices.example.json` only.
+- Keep `devices.json` and `links.json` out of version control. Commit `devices.example.json` only.
 - The API has no authentication and no encryption. Use it only on a trusted local network.
 - Keep the CLI non-interactive and usable from Apple Shortcuts. Support absolute paths and JSON output.
 - Read [docs/api.md](docs/api.md) before a change to the protocol layer.
@@ -32,4 +32,8 @@ this process is documented in the upstream repo's [local tweaks pattern](https:/
 - The macOS app uses SwiftUI `MenuBarExtra`, `LSUIElement`, and App Intents. It calls the Rust core through UniFFI.
 - Build the macOS app with `./scripts/build-macos.sh`.
 - Do not commit `apps/macos/Elopli/Generated`, `apps/macos/Elopli/build`, or `apps/macos/Elopli/Elopli.xcodeproj`. They are build artifacts.
-- Keep the Rust core free of UI and platform code. The CLI and the app are thin wrappers.
+- The Windows app uses Win32, a notification-area icon, and a GDI+ panel. It calls `elopli-core` and `elopli-session` directly.
+- Build the Windows app with `cargo build -p elopli-app --features windows --release` or `./scripts/build-windows.ps1`.
+- The Windows app crate is the only crate that allows `unsafe_code`; keep the unsafe blocks at the Win32 boundary.
+- Do not commit `dist/`; the Windows build script writes packages and checksums there.
+- Keep the Rust core and session layer free of UI and platform code. The CLI and the apps are thin wrappers.

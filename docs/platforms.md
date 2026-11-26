@@ -5,12 +5,13 @@
 | Platform | Status | UI | Packaging |
 | --- | --- | --- | --- |
 | macOS 14+ | Implemented and hardware-tested | SwiftUI `MenuBarExtra`, `LSUIElement`, App Intents | Local app bundle; Developer ID/notarization still open |
-| Windows 10/11 | Planned | Rust `windows-reactor` | Portable ZIP and Scoop; Authenticode still open |
+| Windows 10 1809+ x64 | Implemented; hardware discovery verified | Rust Win32 tray panel with GDI+ rendering | Portable ZIP and generated Scoop manifest; Authenticode open |
 | Linux (Fedora/Ubuntu) | Planned | Rust `gtk4-rs` with `ksni` | AppImage through Soar; Flatpak is shelved |
 
 The Rust core and CLI compile for all three platforms.
-The macOS UI is the current behavioural reference.
-It is not a shared UI implementation: grouping, live slider writes, registry reloads, and discovery rows still live in Swift and must be extracted before the Windows/Linux UIs are built.
+The shared `elopli-session` crate owns grouping, refresh revisions, live slider writes, discovery rows, and animation hand-off.
+The macOS UI still carries its Swift session layer; migrating it to the shared crate is an open item.
+The Windows UI is the second renderer over the shared session layer.
 
 ## Shared rules
 
@@ -21,6 +22,7 @@ It is not a shared UI implementation: grouping, live slider writes, registry rel
 - Animations require a persistent native HTTP connection and never use `curl`.
 - A superseded animation restores the original state before the next action writes.
 - The FFI is synchronous. Run its network calls on a worker thread until async wrappers exist.
+- The Windows app uses the native transport only.
 
 ## Per-platform work
 
@@ -33,12 +35,14 @@ It is not a shared UI implementation: grouping, live slider writes, registry rel
 
 ### Windows
 
-- Decide the minimum supported Windows release and architectures.
-- Spike `windows-reactor` tray, window, accessibility, single-instance, and packaging maturity.
-- Add Windows Firewall and mDNS guidance.
-- Add `.ico`, version resource, AppUserModelID, and portable ZIP.
-- Choose Startup folder, Run key, or Task Scheduler for autostart.
-- Sign releases with Authenticode and timestamp them.
+- Supported baseline: Windows 10 1809 or later, x64.
+- Build: `cargo build -p elopli-app --features windows --release`.
+- Package: `pwsh -NoProfile -File scripts/build-windows.ps1`.
+- The Win32 shell uses a tray icon, a `WS_POPUP` panel, a named-mutex single instance, and `HKCU\...\Run` for autostart.
+- The panel uses GDI+ because Direct2D HWND targets did not present on the Windows 11 test machine.
+- The app embeds the icon and version resource; the version comes from `Cargo.toml`.
+- Firewall guidance: allow `ElopliApp.exe` on private networks, keep UDP 5353 and TCP 9123 reachable, and avoid VPN/Hyper-V adapters that shadow the light subnet.
+- Release work: Authenticode signing and timestamping, a public Scoop bucket, ARM64, and update policy.
 
 ### Linux
 
@@ -51,8 +55,8 @@ It is not a shared UI implementation: grouping, live slider writes, registry rel
 
 ## Before the first Windows/Linux beta
 
-- Shared session/state layer extracted or an explicit duplication decision recorded.
-- CI green on macOS, Linux, and Windows with formatting, clippy, tests, release builds, and cross-checks.
-- Connection reuse, atomic registry writes, and structured errors in place.
-- Packaging, autostart, single-instance, firewall, and update policy documented.
-- Real-hardware smoke tests: discovery, power, brightness, warmth, pulse, sweep, grouping, reconnection.
+- Shared session/state layer extracted: done for Windows; macOS migration open.
+- CI green on macOS, Linux, and Windows with formatting, clippy, tests, release builds, and cross-checks: Windows app job added; Fedora runtime still open.
+- Connection reuse, atomic registry writes, and structured errors in place: done.
+- Packaging, autostart, single-instance, firewall, and update policy documented: Windows done; Linux open.
+- Real-hardware smoke tests: macOS only; Windows mDNS discovery verified, while protocol read/write and UI actions are still to exercise.
