@@ -179,3 +179,6 @@ The first Soar install exposed the difference between a portable tarball and a d
 - The custom `elopli-menu` and `elopli-hover` classes and CSS were suppressing the theme's menu states. They are removed, so the card and settings menu buttons use GTK's default hover and press appearance again, including the rounded box.
 
 - The light menu button is transparent with no border only in its normal state. A `:not(:hover):not(:active):not(:checked):not(:focus)` rule flattens the rest state, while the theme supplies the rounded background and border for hover, press, open, and focus.
+
+- The flat menu rule reserves a 1 px transparent border, so the hover/active/focus border cannot widen the button and shift the toggle. The power and WiFi margins are 5 px and 11 px so the toggle stays on the slider column with 30 px of visible space on each side.
+- The header settings menu uses the same flat-at-rest rule; its hover, press, open, and focus states remain the theme's.

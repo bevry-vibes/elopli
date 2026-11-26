@@ -148,3 +148,7 @@ Answer: no. Plain GTK4 is sufficient for this delivery.
 > neither change seems to have done anything...
 
 > so that light menu button is fine, but I want its normal state to not have border/background, only getting those thigns in its special states
+
+> its hover/spacial states incorrectly bumps the toggle left a px
+>
+> do the same style for the menubar menu button
