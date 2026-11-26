@@ -150,7 +150,10 @@ static CURL_AVAILABLE: OnceLock<bool> = OnceLock::new();
 /// the availability probe and the request path use this so a tray app does
 /// not flash a console on its first network call.
 fn curl_command() -> Command {
+	#[cfg(windows)]
 	let mut command = Command::new("curl");
+	#[cfg(not(windows))]
+	let command = Command::new("curl");
 	#[cfg(windows)]
 	{
 		use std::os::windows::process::CommandExt;
