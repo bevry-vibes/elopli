@@ -1,17 +1,20 @@
 use std::collections::HashMap;
 use std::ptr::null_mut;
 
-use windows::Win32::Foundation::HWND;
-use windows::Win32::Graphics::Gdi::{GetDC, HDC, ReleaseDC};
+use windows::Win32::Foundation::{HWND, RECT};
+use windows::Win32::Graphics::Gdi::{
+	BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, HBITMAP, HDC,
+	HGDIOBJ, SRCCOPY, SelectObject,
+};
 use windows::Win32::Graphics::GdiPlus::{
 	CombineModeReplace, FillModeWinding, FontStyleBold, FontStyleRegular, GdipAddPathArc,
 	GdipAddPathBezier, GdipAddPathLine, GdipClosePathFigure, GdipCreateFont,
 	GdipCreateFontFamilyFromName, GdipCreateFromHDC, GdipCreatePath, GdipCreatePen1,
 	GdipCreateSolidFill, GdipCreateStringFormat, GdipDeleteBrush, GdipDeleteFont,
 	GdipDeleteFontFamily, GdipDeleteGraphics, GdipDeletePath, GdipDeletePen,
-	GdipDeleteStringFormat, GdipDrawArc, GdipDrawEllipse, GdipDrawLine, GdipDrawPath,
-	GdipDrawString, GdipFillEllipse, GdipFillPath, GdipFillRectangle, GdipGraphicsClear,
-	GdipMeasureString, GdipResetClip, GdipSetClipRect, GdipSetPenLineJoin, GdipSetPixelOffsetMode,
+	GdipDeleteStringFormat, GdipDrawEllipse, GdipDrawLine, GdipDrawPath, GdipDrawString,
+	GdipFillEllipse, GdipFillPath, GdipFillRectangle, GdipGraphicsClear, GdipMeasureString,
+	GdipResetClip, GdipSetClipPath, GdipSetClipRect, GdipSetPenLineJoin, GdipSetPixelOffsetMode,
 	GdipSetSmoothingMode, GdipSetStringFormatAlign, GdipSetStringFormatFlags,
 	GdipSetStringFormatLineAlign, GdipSetTextRenderingHint, GdiplusShutdown, GdiplusStartup,
 	GdiplusStartupInput, GpBrush, GpFont, GpFontFamily, GpGraphics, GpPath, GpPen, GpStringFormat,
@@ -19,8 +22,10 @@ use windows::Win32::Graphics::GdiPlus::{
 	StringAlignment, StringAlignmentCenter, StringAlignmentFar, StringAlignmentNear,
 	StringFormatFlagsNoWrap, TextRenderingHintClearTypeGridFit, UnitPixel,
 };
+use windows::Win32::UI::WindowsAndMessaging::GetClientRect;
 use windows::core::PCWSTR;
 
+use crate::icons::{Command, Icon, commands};
 use crate::theme::{Theme, rgba};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -60,8 +65,12 @@ struct PenKey {
 pub struct Renderer {
 	token: usize,
 	graphics: *mut GpGraphics,
-	window: HWND,
 	dc: HDC,
+	memory_dc: HDC,
+	bitmap: HBITMAP,
+	old_bitmap: HGDIOBJ,
+	width: i32,
+	height: i32,
 	family: *mut GpFontFamily,
 	fonts: HashMap<TextKey, *mut GpFont>,
 	formats: HashMap<TextKey, *mut GpStringFormat>,
@@ -100,8 +109,12 @@ impl Renderer {
 		Ok(Self {
 			token,
 			graphics: null_mut(),
-			window: _window,
 			dc: HDC::default(),
+			memory_dc: HDC::default(),
+			bitmap: HBITMAP::default(),
+			old_bitmap: HGDIOBJ::default(),
+			width: 0,
+			height: 0,
 			family,
 			fonts: HashMap::new(),
 			formats: HashMap::new(),
@@ -122,19 +135,31 @@ impl Renderer {
 		Ok(())
 	}
 
-	pub fn begin(&mut self, window: HWND, background: u32) {
-		self.window = window;
-		self.dc = unsafe { GetDC(Some(window)) };
-		if self.dc.0.is_null() {
+	pub fn begin(&mut self, window: HWND, dc: HDC, background: u32) {
+		self.dc = dc;
+		if dc.0.is_null() {
 			return;
 		}
+		let mut rect = RECT::default();
+		unsafe {
+			let _ = GetClientRect(window, &mut rect);
+		}
+		self.width = (rect.right - rect.left).max(1);
+		self.height = (rect.bottom - rect.top).max(1);
+		self.memory_dc = unsafe { CreateCompatibleDC(Some(dc)) };
+		if self.memory_dc.0.is_null() {
+			return;
+		}
+		self.bitmap = unsafe { CreateCompatibleBitmap(dc, self.width, self.height) };
+		if self.bitmap.0.is_null() {
+			self.cleanup_buffer();
+			return;
+		}
+		self.old_bitmap = unsafe { SelectObject(self.memory_dc, HGDIOBJ(self.bitmap.0)) };
 		let mut graphics = null_mut();
-		let status = unsafe { GdipCreateFromHDC(self.dc, &mut graphics) };
+		let status = unsafe { GdipCreateFromHDC(self.memory_dc, &mut graphics) };
 		if status != GpOk {
-			unsafe {
-				let _ = ReleaseDC(Some(window), self.dc);
-			}
-			self.dc = HDC::default();
+			self.cleanup_buffer();
 			return;
 		}
 		self.graphics = graphics;
@@ -153,12 +178,43 @@ impl Renderer {
 			}
 			self.graphics = null_mut();
 		}
-		if !self.dc.0.is_null() {
+		if !self.dc.0.is_null() && !self.memory_dc.0.is_null() && self.width > 0 && self.height > 0
+		{
 			unsafe {
-				let _ = ReleaseDC(Some(self.window), self.dc);
+				let _ = BitBlt(
+					self.dc,
+					0,
+					0,
+					self.width,
+					self.height,
+					Some(self.memory_dc),
+					0,
+					0,
+					SRCCOPY,
+				);
 			}
-			self.dc = HDC::default();
 		}
+		self.cleanup_buffer();
+		self.dc = HDC::default();
+	}
+
+	fn cleanup_buffer(&mut self) {
+		if !self.memory_dc.0.is_null() {
+			if !self.bitmap.0.is_null() {
+				unsafe {
+					let _ = SelectObject(self.memory_dc, self.old_bitmap);
+					let _ = DeleteObject(HGDIOBJ(self.bitmap.0));
+				}
+				self.bitmap = HBITMAP::default();
+			}
+			unsafe {
+				let _ = DeleteDC(self.memory_dc);
+			}
+			self.memory_dc = HDC::default();
+		}
+		self.old_bitmap = HGDIOBJ::default();
+		self.width = 0;
+		self.height = 0;
 	}
 
 	fn graphics(&self) -> Option<*mut GpGraphics> {
@@ -501,6 +557,29 @@ impl Renderer {
 		}
 	}
 
+	pub fn gradient_round(
+		&mut self,
+		rect: Rect,
+		radius: f32,
+		stops: &[(f32, u32)],
+		horizontal: bool,
+	) {
+		let Some(graphics) = self.graphics() else {
+			return;
+		};
+		let Some(path) = self.rounded_path(rect, radius) else {
+			return;
+		};
+		unsafe {
+			let _ = GdipSetClipPath(graphics, path, CombineModeReplace);
+		}
+		self.gradient_rect(rect, stops, horizontal);
+		unsafe {
+			let _ = GdipResetClip(graphics);
+			let _ = GdipDeletePath(path);
+		}
+	}
+
 	pub fn push_clip(&mut self, rect: Rect) {
 		let Some(graphics) = self.graphics() else {
 			return;
@@ -526,65 +605,7 @@ impl Renderer {
 		}
 	}
 
-	#[allow(clippy::too_many_arguments)]
-	pub fn arc(
-		&mut self,
-		cx: f32,
-		cy: f32,
-		radius: f32,
-		start_degrees: f32,
-		end_degrees: f32,
-		color: u32,
-		width: f32,
-	) {
-		let (Some(graphics), Some(pen)) = (self.graphics(), self.pen(color, width)) else {
-			return;
-		};
-		let r = radius * self.scale;
-		unsafe {
-			let _ = GdipDrawArc(
-				graphics,
-				pen,
-				cx * self.scale - r,
-				cy * self.scale - r,
-				r * 2.0,
-				r * 2.0,
-				start_degrees,
-				end_degrees - start_degrees,
-			);
-		}
-	}
-
-	pub fn wifi(&mut self, cx: f32, bottom: f32, color: u32, active: bool) {
-		if active {
-			self.arc(cx, bottom, 4.0, 205.0, 335.0, color, 1.7);
-			self.arc(cx, bottom, 8.0, 205.0, 335.0, color, 1.7);
-			self.arc(cx, bottom, 12.0, 205.0, 335.0, color, 1.7);
-			self.circle(cx, bottom - 1.0, 1.5, color);
-		} else {
-			self.arc(cx, bottom, 6.0, 205.0, 335.0, color, 1.5);
-			self.line(cx - 6.0, bottom - 8.0, cx + 6.0, bottom - 2.0, color, 1.5);
-		}
-	}
-
-	pub fn sun(&mut self, cx: f32, cy: f32, size: f32, color: u32) {
-		self.circle(cx, cy, size * 0.28, color);
-		for index in 0..8 {
-			let angle = std::f32::consts::TAU * index as f32 / 8.0;
-			let inner = size * 0.45;
-			let outer = size * 0.62;
-			self.line(
-				cx + inner * angle.cos(),
-				cy + inner * angle.sin(),
-				cx + outer * angle.cos(),
-				cy + outer * angle.sin(),
-				color,
-				1.4,
-			);
-		}
-	}
-
-	pub fn flame(&mut self, cx: f32, cy: f32, size: f32, color: u32) {
+	pub fn icon(&mut self, icon: Icon, cx: f32, cy: f32, size: f32, color: u32) {
 		let (Some(graphics), Some(brush)) = (self.graphics(), self.brush(color)) else {
 			return;
 		};
@@ -592,54 +613,185 @@ impl Renderer {
 		if unsafe { GdipCreatePath(FillModeWinding, &mut path) } != GpOk {
 			return;
 		}
-		let half = size * 0.42;
-		let top = cy - size * 0.62;
+		let scale = size / 20.0;
+		let dpi = self.scale;
+		let x = |value: f32| (cx + (value - 10.0) * scale) * dpi;
+		let y = |value: f32| (cy + (value - 10.0) * scale) * dpi;
+		let mut current = (0.0f32, 0.0f32);
+		let mut start = (0.0f32, 0.0f32);
+		let mut open = false;
+		for command in commands(icon) {
+			match *command {
+				Command::Move(x0, y0) => {
+					if open {
+						unsafe {
+							let _ = GdipClosePathFigure(path);
+						}
+					}
+					current = (x0, y0);
+					start = current;
+					open = true;
+				}
+				Command::Line(x0, y0) => {
+					if open {
+						unsafe {
+							let _ = GdipAddPathLine(path, x(current.0), y(current.1), x(x0), y(y0));
+						}
+					}
+					current = (x0, y0);
+				}
+				Command::Horizontal(x0) => {
+					if open {
+						unsafe {
+							let _ = GdipAddPathLine(
+								path,
+								x(current.0),
+								y(current.1),
+								x(x0),
+								y(current.1),
+							);
+						}
+					}
+					current.0 = x0;
+				}
+				Command::Vertical(y0) => {
+					if open {
+						unsafe {
+							let _ = GdipAddPathLine(
+								path,
+								x(current.0),
+								y(current.1),
+								x(current.0),
+								y(y0),
+							);
+						}
+					}
+					current.1 = y0;
+				}
+				Command::Curve(x1, y1, x2, y2, x0, y0) => {
+					if open {
+						unsafe {
+							let _ = GdipAddPathBezier(
+								path,
+								x(current.0),
+								y(current.1),
+								x(x1),
+								y(y1),
+								x(x2),
+								y(y2),
+								x(x0),
+								y(y0),
+							);
+						}
+					}
+					current = (x0, y0);
+				}
+				Command::Close => {
+					if open {
+						unsafe {
+							let _ = GdipClosePathFigure(path);
+						}
+					}
+					open = false;
+					current = start;
+				}
+			}
+		}
+		if open {
+			unsafe {
+				let _ = GdipClosePathFigure(path);
+			}
+		}
 		unsafe {
-			let _ = GdipAddPathBezier(
-				path,
-				cx * self.scale,
-				top * self.scale,
-				(cx + half * 1.2) * self.scale,
-				(cy - size * 0.1) * self.scale,
-				(cx + half * 0.8) * self.scale,
-				(cy + size * 0.45) * self.scale,
-				cx * self.scale,
-				(cy + size * 0.55) * self.scale,
-			);
-			let _ = GdipAddPathBezier(
-				path,
-				cx * self.scale,
-				(cy + size * 0.55) * self.scale,
-				(cx - half * 0.8) * self.scale,
-				(cy + size * 0.45) * self.scale,
-				(cx - half * 1.2) * self.scale,
-				(cy - size * 0.1) * self.scale,
-				cx * self.scale,
-				top * self.scale,
-			);
-			let _ = GdipClosePathFigure(path);
 			let _ = GdipFillPath(graphics, brush, path);
 			let _ = GdipDeletePath(path);
 		}
 	}
 
-	pub fn refresh_icon(&mut self, cx: f32, cy: f32, size: f32, color: u32) {
-		self.arc(cx, cy, size * 0.42, 40.0, 320.0, color, 1.7);
-		let angle = 40f32.to_radians();
-		let x = cx + size * 0.42 * angle.cos();
-		let y = cy + size * 0.42 * angle.sin();
-		self.line(x, y, x + size * 0.18, y, color, 1.7);
-		self.line(x, y, x, y - size * 0.18, color, 1.7);
+	pub fn slash(&mut self, cx: f32, cy: f32, size: f32, color: u32, background: u32) {
+		let extent = size * 0.4;
+		self.line(
+			cx - extent,
+			cy + extent,
+			cx + extent,
+			cy - extent,
+			background,
+			2.6,
+		);
+		self.line(
+			cx - extent,
+			cy + extent,
+			cx + extent,
+			cy - extent,
+			color,
+			1.2,
+		);
 	}
 
-	pub fn dots(&mut self, cx: f32, cy: f32, color: u32, vertical: bool) {
-		for index in -1..=1 {
-			let offset = index as f32 * 5.0;
-			if vertical {
-				self.circle(cx, cy + offset, 1.6, color);
-			} else {
-				self.circle(cx + offset, cy, 1.6, color);
+	/// A capsule that tapers from a thin left edge to a thick right edge,
+	/// matching the macOS brightness slider.
+	pub fn tapered_track(
+		&mut self,
+		track: Rect,
+		left_height: f32,
+		right_height: f32,
+		fill: u32,
+		border: u32,
+	) {
+		let (Some(graphics), Some(brush)) = (self.graphics(), self.brush(fill)) else {
+			return;
+		};
+		let mut path = null_mut();
+		if unsafe { GdipCreatePath(FillModeWinding, &mut path) } != GpOk {
+			return;
+		}
+		let center = track.y + track.h / 2.0;
+		let left = left_height.min(track.h).max(1.0);
+		let right = right_height.min(track.h).max(1.0);
+		let left_radius = left / 2.0;
+		let right_radius = right / 2.0;
+		let left_x = track.x + left_radius;
+		let right_x = track.right() - right_radius;
+		let scale = self.scale;
+		unsafe {
+			let _ = GdipAddPathLine(
+				path,
+				left_x * scale,
+				(center - left_radius) * scale,
+				right_x * scale,
+				(center - right_radius) * scale,
+			);
+			let _ = GdipAddPathArc(
+				path,
+				(right_x - right_radius) * scale,
+				(center - right_radius) * scale,
+				right_radius * 2.0 * scale,
+				right_radius * 2.0 * scale,
+				-90.0,
+				180.0,
+			);
+			let _ = GdipAddPathLine(
+				path,
+				right_x * scale,
+				(center + right_radius) * scale,
+				left_x * scale,
+				(center + left_radius) * scale,
+			);
+			let _ = GdipAddPathArc(
+				path,
+				(left_x - left_radius) * scale,
+				(center - left_radius) * scale,
+				left_radius * 2.0 * scale,
+				left_radius * 2.0 * scale,
+				90.0,
+				180.0,
+			);
+			let _ = GdipClosePathFigure(path);
+			let _ = GdipFillPath(graphics, brush, path);
+			if let Some(pen) = self.pen(border, 1.0) {
+				let _ = GdipDrawPath(graphics, pen, path);
 			}
+			let _ = GdipDeletePath(path);
 		}
 	}
 

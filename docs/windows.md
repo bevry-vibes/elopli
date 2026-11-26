@@ -45,6 +45,7 @@ The panel has one card per light:
 - Warmth slider from 0 (cool) to 100 (warm), with warm on the left.
 - WiFi icon with SSID, band, RSSI, quality, and the saved address on hover.
 - Menu for Rename, Power On Behaviour, Pulse, Sweep, group actions, and Identify.
+- Hover the model name for the light's serial number; it is hidden by default and never written to disk or logs.
 - Error text with the address and a power-cycle hint when a light is offline.
 
 Hold Ctrl and click a card, switch, or slider to link lights. Pending selections use yellow; committed links use magenta.

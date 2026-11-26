@@ -4,7 +4,8 @@ use std::path::Path;
 use std::process::Command;
 
 use windows::Win32::Foundation::{
-	CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE, HWND, LPARAM, POINT, RECT, WPARAM,
+	CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE, HINSTANCE, HWND, LPARAM, POINT, RECT,
+	WPARAM,
 };
 use windows::Win32::Graphics::Dwm::{
 	DWMWA_USE_IMMERSIVE_DARK_MODE, DWMWA_WINDOW_CORNER_PREFERENCE, DwmSetWindowAttribute,
@@ -13,6 +14,7 @@ use windows::Win32::Graphics::Gdi::{
 	GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MONITORINFOEXW, MonitorFromPoint,
 };
 use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx};
+use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::CreateMutexW;
 use windows::Win32::UI::Controls::SetWindowTheme;
 use windows::Win32::UI::HiDpi::{
@@ -23,8 +25,8 @@ use windows::Win32::UI::Shell::{
 	NOTIFYICONIDENTIFIER, SetCurrentProcessExplicitAppUserModelID, Shell_NotifyIconGetRect,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-	FindWindowW, GetClientRect, IDC_ARROW, IDC_HAND, LoadCursorW, PostMessageW, SW_SHOW, SetCursor,
-	SetForegroundWindow, ShowWindow,
+	FindWindowW, GetClientRect, HICON, IDC_ARROW, IDC_HAND, IMAGE_ICON, LR_DEFAULTSIZE, LR_SHARED,
+	LoadCursorW, LoadImageW, PostMessageW, SW_SHOW, SetCursor, SetForegroundWindow, ShowWindow,
 };
 use windows::core::{BOOL, GUID, HSTRING, PCWSTR};
 use winreg::RegKey;
@@ -34,6 +36,28 @@ pub const TRAY_ID: u32 = 1;
 pub const WM_APP_TRAY: u32 = 0x8000 + 1;
 pub const WM_APP_UPDATE: u32 = 0x8000 + 2;
 pub const WM_APP_SHOW: u32 = 0x8000 + 3;
+
+/// Load the Elopli icon resource from this executable.
+///
+/// `LoadImageW` with a null instance treats the name as a system resource, so
+/// the tray used to fall back to a generic shell icon even though the icon was
+/// embedded correctly. Pass the module handle explicitly.
+#[allow(clippy::manual_dangling_ptr)]
+pub fn app_icon() -> Option<HICON> {
+	let module = unsafe { GetModuleHandleW(None) }.ok()?;
+	let icon = unsafe {
+		LoadImageW(
+			Some(HINSTANCE(module.0)),
+			PCWSTR(1 as *const u16),
+			IMAGE_ICON,
+			0,
+			0,
+			LR_DEFAULTSIZE | LR_SHARED,
+		)
+	}
+	.ok()?;
+	Some(HICON(icon.0))
+}
 
 pub struct SingleInstance {
 	handle: HANDLE,

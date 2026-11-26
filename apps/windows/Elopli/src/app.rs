@@ -7,9 +7,10 @@ use elopli_session::{
 };
 use windows::Win32::Foundation::{COLORREF, HINSTANCE, HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
-	CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, ClientToScreen, CreateFontW, CreateSolidBrush,
-	DEFAULT_CHARSET, DEFAULT_PITCH, DeleteObject, FF_DONTCARE, FW_NORMAL, HBRUSH, HDC, HFONT,
-	HGDIOBJ, InvalidateRect, OUT_DEFAULT_PRECIS, SetBkColor, SetTextColor, ValidateRect,
+	BeginPaint, CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, ClientToScreen, CreateFontW,
+	CreateSolidBrush, DEFAULT_CHARSET, DEFAULT_PITCH, DeleteObject, EndPaint, FF_DONTCARE,
+	FW_NORMAL, HBRUSH, HDC, HFONT, HGDIOBJ, InvalidateRect, OUT_DEFAULT_PRECIS, PAINTSTRUCT,
+	SetBkColor, SetTextColor,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::EM_SETSEL;
@@ -27,21 +28,22 @@ use windows::Win32::UI::WindowsAndMessaging::{
 	SWP_NOMOVE, SWP_NOZORDER, SendMessageW, SetForegroundWindow, SetTimer, SetWindowLongPtrW,
 	SetWindowPos, ShowWindow, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu, TranslateMessage,
 	WA_INACTIVE, WINDOW_STYLE, WM_ACTIVATE, WM_CHAR, WM_CLOSE, WM_COMMAND, WM_CONTEXTMENU,
-	WM_CTLCOLOREDIT, WM_DESTROY, WM_DPICHANGED, WM_ENDSESSION, WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS,
-	WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCCREATE, WM_PAINT,
+	WM_CTLCOLOREDIT, WM_DESTROY, WM_DPICHANGED, WM_ENDSESSION, WM_ERASEBKGND, WM_KEYDOWN, WM_KEYUP,
+	WM_KILLFOCUS, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCCREATE, WM_PAINT,
 	WM_QUERYENDSESSION, WM_RBUTTONUP, WM_SETFONT, WM_SETTINGCHANGE, WM_TIMER, WNDCLASSW, WS_CHILD,
 	WS_CLIPCHILDREN, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP, WS_VISIBLE,
 };
 use windows::core::PCWSTR;
 
+use crate::icons::Icon;
 use crate::render::{Rect, Renderer, TextAlign, track_color};
 use crate::session_worker::{Command, Worker};
-use crate::theme::{Theme, rgba};
+use crate::theme::{Theme, rgba, with_alpha};
 use crate::tray::Tray;
 use crate::win32::{
-	WM_APP_SHOW, WM_APP_TRAY, WM_APP_UPDATE, apply_dark_mode, client_size, ctrl_down, cursor_hand,
-	cursor_position, dpi, hiword, loword, reveal_config, scale_i32, tray_rect, unscale, wide,
-	work_area,
+	WM_APP_SHOW, WM_APP_TRAY, WM_APP_UPDATE, app_icon, apply_dark_mode, client_size, ctrl_down,
+	cursor_hand, cursor_position, dpi, hiword, loword, reveal_config, scale_i32, tray_rect,
+	unscale, wide, work_area,
 };
 
 pub const WINDOW_CLASS: &str = "ElopliPanel";
@@ -72,10 +74,12 @@ pub fn run(autostart: bool) -> windows::core::Result<()> {
 	let instance = unsafe { GetModuleHandleW(None)? };
 	let class_name = wide(WINDOW_CLASS);
 	let cursor = unsafe { LoadCursorW(None, IDC_ARROW)? };
+	let icon = app_icon().unwrap_or_default();
 	let class = WNDCLASSW {
 		style: CS_DROPSHADOW,
 		lpfnWndProc: Some(window_proc),
 		hInstance: HINSTANCE(instance.0),
+		hIcon: icon,
 		lpszClassName: PCWSTR(class_name.as_ptr()),
 		hCursor: cursor,
 		..Default::default()
@@ -149,6 +153,7 @@ enum Hit {
 	Power(String),
 	Brightness(String),
 	Warmth(String),
+	Model(String),
 	Menu(String),
 	Wifi(String),
 	SheetClose,
@@ -262,6 +267,8 @@ struct App {
 	edit: Option<Edit>,
 	preview: HashMap<(String, LinkKind), u8>,
 	preview_until: Option<Instant>,
+	model_hover: Option<(String, Instant)>,
+	model_popover: Option<String>,
 	wifi_hover: Option<(String, Instant)>,
 	wifi_popover: Option<String>,
 	ctrl_down: bool,
@@ -277,6 +284,7 @@ struct CardLayout {
 	power: Rect,
 	brightness: Rect,
 	warmth: Rect,
+	model: Rect,
 	menu: Rect,
 	wifi: Rect,
 }
@@ -349,6 +357,8 @@ impl App {
 			edit: None,
 			preview: HashMap::new(),
 			preview_until: None,
+			model_hover: None,
+			model_popover: None,
 			wifi_hover: None,
 			wifi_popover: None,
 			ctrl_down: false,
@@ -404,6 +414,8 @@ impl App {
 		self.hover = None;
 		self.drag = None;
 		self.drag_target = None;
+		self.model_hover = None;
+		self.model_popover = None;
 		self.wifi_hover = None;
 		self.wifi_popover = None;
 		if self.sheet != Sheet::None {
@@ -477,11 +489,12 @@ impl App {
 	}
 
 	fn resize_to_content(&mut self, reposition: bool) {
+		let layout = self.layout();
+		let panel_height = (layout.content_height + 2.0).ceil();
 		let desired = if self.sheet == Sheet::None {
-			let layout = self.layout();
-			(layout.content_height + 20.0).ceil()
+			panel_height
 		} else {
-			self.sheet_height()
+			panel_height.max(self.sheet_height())
 		};
 		let height =
 			scale_i32(self.dpi, desired).clamp(MIN_HEIGHT, scale_i32(self.dpi, MAX_HEIGHT));
@@ -513,21 +526,20 @@ impl App {
 		let padding = 18.0;
 		let header = Rect::new(padding, padding, width - padding * 2.0, 36.0);
 		let mut buttons = Vec::new();
+		let button = 32.0;
+		let gap = 4.0;
 		let mut right = header.right();
-		let settings = Rect::new(right - 28.0, header.y + 4.0, 28.0, 28.0);
-		buttons.push((settings, Hit::Settings));
-		right -= 34.0;
-		let all_off = Rect::new(right - 36.0, header.y + 4.0, 36.0, 28.0);
-		buttons.push((all_off, Hit::AllOff));
-		right -= 42.0;
-		let all_on = Rect::new(right - 36.0, header.y + 4.0, 36.0, 28.0);
-		buttons.push((all_on, Hit::AllOn));
-		right -= 42.0;
-		let scan = Rect::new(right - 28.0, header.y + 4.0, 28.0, 28.0);
-		buttons.push((scan, Hit::Scan));
-		right -= 34.0;
-		let refresh = Rect::new(right - 28.0, header.y + 4.0, 28.0, 28.0);
-		buttons.push((refresh, Hit::Refresh));
+		for hit in [
+			Hit::Settings,
+			Hit::AllOff,
+			Hit::AllOn,
+			Hit::Scan,
+			Hit::Refresh,
+		] {
+			let rect = Rect::new(right - button, header.y + 2.0, button, button);
+			buttons.push((rect, hit));
+			right -= button + gap;
+		}
 
 		let mut cards = Vec::new();
 		let mut y = header.bottom() + 14.0;
@@ -535,27 +547,34 @@ impl App {
 			let error = device.error.is_some();
 			let height = if error { 166.0 } else { 148.0 };
 			let card = Rect::new(padding, y, width - padding * 2.0, height);
-			let power = Rect::new(card.right() - 58.0, card.y + 14.0, 44.0, 24.0);
-			let wifi = Rect::new(card.right() - 92.0, card.y + 15.0, 22.0, 22.0);
-			let brightness = Rect::new(card.x + 38.0, card.y + 53.0, card.w - 100.0, 28.0);
-			let warmth = Rect::new(card.x + 38.0, card.y + 85.0, card.w - 100.0, 28.0);
-			let menu = Rect::new(card.right() - 30.0, card.y + 118.0, 20.0, 20.0);
+			let menu = Rect::new(card.right() - 60.0, card.y + 115.0, 44.0, 24.0);
+			let power = Rect::new(card.right() - 60.0, card.y + 12.0, 44.0, 24.0);
+			let wifi = Rect::new(power.x - 8.0 - 24.0, card.y + 12.0, 24.0, 24.0);
+			let brightness = Rect::new(card.x + 16.0, card.y + 53.0, card.w - 32.0, 28.0);
+			let warmth = Rect::new(card.x + 16.0, card.y + 85.0, card.w - 32.0, 28.0);
+			let model = Rect::new(
+				card.x + 16.0,
+				card.y + 30.0,
+				(wifi.x - (card.x + 16.0) - 8.0).max(0.0),
+				16.0,
+			);
 			cards.push(CardLayout {
 				name: device.name.clone(),
 				card,
 				power,
 				brightness,
 				warmth,
+				model,
 				menu,
 				wifi,
 			});
 			y += height + 12.0;
 		}
-		let footer = Rect::new(padding, y + 2.0, width - padding * 2.0, 30.0);
+		let footer = Rect::new(padding, y + 2.0, width - padding * 2.0, 16.0);
 		let content_height = if cards.is_empty() {
 			220.0
 		} else {
-			footer.bottom() + padding
+			footer.bottom() + 10.0
 		};
 		Layout {
 			header,
@@ -569,11 +588,12 @@ impl App {
 	fn sheet_rects(&self) -> SheetRects {
 		let (width, height) = self.dip_size();
 		let panel_width = 400.0f32.min(width - 24.0);
+		let panel_height = (self.sheet_height() - 36.0).max(120.0);
 		let panel = Rect::new(
 			(width - panel_width) / 2.0,
-			18.0,
+			((height - panel_height) / 2.0).max(18.0),
 			panel_width,
-			(height - 36.0).max(120.0),
+			panel_height,
 		);
 		let padding = 20.0;
 		let close = Rect::new(panel.x + padding, panel.bottom() - 52.0, 76.0, 32.0);
@@ -716,6 +736,13 @@ impl App {
 					});
 				}
 			}
+			let model = Rect {
+				y: card.model.y - offset,
+				..card.model
+			};
+			if model.contains(x, y) {
+				return Some(Hit::Model(card.name.clone()));
+			}
 			let menu = Rect {
 				y: card.menu.y - offset,
 				..card.menu
@@ -805,7 +832,7 @@ impl App {
 		}
 	}
 
-	fn on_paint(&mut self) {
+	fn on_paint(&mut self, dc: HDC) {
 		let (width, height) = client_size(self.window);
 		let _ = self.renderer.resize(
 			self.window,
@@ -813,10 +840,9 @@ impl App {
 			height.max(1) as u32,
 			self.dpi as f32,
 		);
-		self.renderer.begin(self.window, self.theme.panel_bg);
-		if self.sheet == Sheet::None {
-			self.draw_panel();
-		} else {
+		self.renderer.begin(self.window, dc, self.theme.panel_bg);
+		self.draw_panel();
+		if self.sheet != Sheet::None {
 			self.draw_sheet();
 		}
 		self.renderer.end();
@@ -918,66 +944,56 @@ impl App {
 	}
 
 	fn draw_header(&mut self, layout: &Layout) {
-		self.renderer.text(
+		self.renderer.text_ex(
 			"Elopli",
 			Rect::new(18.0, 18.0, 150.0, 36.0),
 			20.0,
 			600,
 			TextAlign::Left,
+			true,
+			false,
 			self.theme.text,
 		);
-		if self.snapshot.refreshing {
-			self.renderer.circle(
-				layout.header.x + 58.0,
-				layout.header.y + 18.0,
-				3.0,
-				self.theme.accent,
-			);
-		}
 		for (rect, hit) in &layout.buttons {
 			let hovered = self.hover.as_ref() == Some(hit);
 			if hovered {
 				self.renderer.fill_round(*rect, 7.0, self.theme.hover);
 			}
-			let color = self.theme.text_secondary;
+			let color = if *hit == Hit::Refresh && self.snapshot.refreshing {
+				self.theme.accent
+			} else {
+				self.theme.text_secondary
+			};
+			let cx = rect.x + rect.w / 2.0;
+			let cy = rect.y + rect.h / 2.0;
 			match hit {
-				Hit::Refresh => self.renderer.refresh_icon(
-					rect.x + rect.w / 2.0,
-					rect.y + rect.h / 2.0,
-					14.0,
-					color,
-				),
-				Hit::Scan => self.renderer.wifi(
-					rect.x + rect.w / 2.0,
-					rect.y + rect.h / 2.0 + 4.0,
-					color,
-					true,
-				),
-				Hit::AllOn => {
-					self.renderer
-						.text("On", *rect, 11.0, 600, TextAlign::Center, color);
-				}
+				Hit::Refresh => self.renderer.icon(Icon::Refresh, cx, cy, 20.0, color),
+				Hit::Scan => self.renderer.icon(Icon::Scan, cx, cy, 20.0, color),
+				Hit::AllOn => self.renderer.icon(Icon::BulbFilled, cx, cy, 20.0, color),
 				Hit::AllOff => {
+					self.renderer.icon(Icon::Bulb, cx, cy, 20.0, color);
 					self.renderer
-						.text("Off", *rect, 11.0, 600, TextAlign::Center, color);
+						.slash(cx, cy, 20.0, color, self.theme.panel_bg);
 				}
-				Hit::Settings => {
-					self.renderer
-						.dots(rect.x + rect.w / 2.0, rect.y + rect.h / 2.0, color, true)
-				}
+				Hit::Settings => self.renderer.icon(Icon::Settings, cx, cy, 20.0, color),
 				_ => {}
 			}
 		}
 	}
 
 	fn draw_footer(&mut self, layout: &Layout) {
-		let y = layout.footer.y - self.scroll;
-		self.renderer.text(
+		let footer = Rect {
+			y: layout.footer.y - self.scroll,
+			..layout.footer
+		};
+		self.renderer.text_ex(
 			"Ctrl-click a card, toggle, or slider to link lights.",
-			Rect::new(18.0, y, PANEL_WIDTH - 36.0, 24.0),
+			footer,
 			10.0,
 			400,
 			TextAlign::Left,
+			true,
+			false,
 			self.theme.text_secondary,
 		);
 	}
@@ -1036,6 +1052,11 @@ impl App {
 			y: card.menu.y + dy,
 			..card.menu
 		};
+		let model = Rect {
+			x: card.model.x + dx,
+			y: card.model.y + dy,
+			..card.model
+		};
 		self.renderer
 			.fill_round(card_rect, 16.0, self.theme.card_bg);
 		self.renderer
@@ -1044,9 +1065,10 @@ impl App {
 			self.renderer.stroke_round(card_rect, 16.0, color, 2.0);
 		}
 
+		let title_width = (wifi.x - (card_rect.x + 16.0) - 8.0).max(0.0);
 		self.renderer.text(
-			&device.name,
-			Rect::new(card_rect.x + 14.0, card_rect.y + 10.0, 240.0, 20.0),
+			device.title(),
+			Rect::new(card_rect.x + 16.0, card_rect.y + 10.0, title_width, 20.0),
 			15.0,
 			600,
 			TextAlign::Left,
@@ -1054,7 +1076,7 @@ impl App {
 		);
 		self.renderer.text(
 			&device.subtitle(),
-			Rect::new(card_rect.x + 14.0, card_rect.y + 30.0, 240.0, 16.0),
+			Rect::new(card_rect.x + 16.0, card_rect.y + 30.0, title_width, 16.0),
 			10.0,
 			400,
 			TextAlign::Left,
@@ -1068,16 +1090,16 @@ impl App {
 		let on = device.is_effectively_on();
 		self.renderer.toggle(power, on, &self.theme);
 
-		self.renderer.wifi(
+		self.renderer.icon(
+			if device.error.is_some() {
+				Icon::WifiOff
+			} else {
+				Icon::Wifi
+			},
 			wifi.x + wifi.w / 2.0,
-			wifi.y + wifi.h - 4.0,
+			wifi.y + wifi.h / 2.0,
+			20.0,
 			self.wifi_color(&device),
-			device
-				.info
-				.as_ref()
-				.and_then(|info| info.wifi.as_ref())
-				.is_some()
-				&& device.error.is_none(),
 		);
 		if let Some(color) = self.link_color(graph, &card.name, LinkKind::Brightness) {
 			self.renderer.stroke_round(brightness, 8.0, color, 1.5);
@@ -1098,24 +1120,27 @@ impl App {
 			.copied()
 			.or_else(|| self.snapshot.live_warmth.get(&card.name).copied())
 			.unwrap_or_else(|| device.display_warmth());
-		self.renderer.sun(
-			brightness.x + 10.0,
+		self.renderer.icon(
+			Icon::Brightness,
+			brightness.x + 9.0,
 			brightness.y + brightness.h / 2.0,
-			16.0,
+			20.0,
 			self.theme.text_secondary,
 		);
-		self.draw_slider(
+		let dragging_brightness = matches!(
+			&self.drag,
+			Some(Drag::Slider { name, kind })
+				if name == &card.name && *kind == LinkKind::Brightness
+		);
+		self.draw_brightness_slider(
 			Rect {
-				x: brightness.x + 24.0,
-				w: brightness.w - 84.0,
+				x: brightness.x + 28.0,
+				w: brightness.w - 76.0,
 				..brightness
 			},
 			f32::from(brightness_value),
-			2.0,
-			100.0,
-			false,
-			track_color(brightness_value),
-			on && device.state.is_some(),
+			Theme::temperature_color(f32::from(warmth_value)),
+			on || dragging_brightness,
 		);
 		let brightness_label = if device
 			.state
@@ -1128,63 +1153,84 @@ impl App {
 		} else {
 			format!("{brightness_value}%")
 		};
-		self.renderer.text(
+		self.renderer.text_ex(
 			&brightness_label,
-			Rect::new(card_rect.right() - 58.0, brightness.y, 44.0, brightness.h),
+			Rect::new(brightness.right() - 44.0, brightness.y, 44.0, brightness.h),
 			10.0,
 			400,
 			TextAlign::Right,
+			true,
+			false,
 			self.theme.text_secondary,
 		);
 
-		self.renderer.flame(
-			warmth.x + 10.0,
+		self.renderer.icon(
+			Icon::Flame,
+			warmth.x + 9.0,
 			warmth.y + warmth.h / 2.0,
-			16.0,
+			20.0,
 			self.theme.text_secondary,
 		);
+		// The warmth renderer insets its own track by 8 DIP; compensate so the
+		// warmth and brightness tracks share the same start and end edges.
 		let warmth_rect = Rect {
-			x: warmth.x + 24.0,
-			w: warmth.w - 84.0,
+			x: warmth.x + 20.0,
+			w: warmth.w - 60.0,
 			..warmth
 		};
 		self.draw_warmth_slider(warmth_rect, f32::from(warmth_value));
-		self.renderer.text(
+		self.renderer.text_ex(
 			&format!("{warmth_value}%"),
-			Rect::new(card_rect.right() - 58.0, warmth.y, 44.0, warmth.h),
+			Rect::new(warmth.right() - 44.0, warmth.y, 44.0, warmth.h),
 			10.0,
 			400,
 			TextAlign::Right,
+			true,
+			false,
 			self.theme.text_secondary,
 		);
 
 		if let Some(state) = device.state {
-			self.renderer.text(
+			self.renderer.text_ex(
 				&format!("{} mired · {} K", state.temperature, state.kelvin()),
-				Rect::new(card_rect.x + 14.0, card_rect.y + 118.0, 240.0, 18.0),
+				Rect::new(card_rect.x + 16.0, card_rect.y + 118.0, 240.0, 18.0),
 				9.5,
 				400,
 				TextAlign::Left,
+				true,
+				false,
 				self.theme.text_secondary,
 			);
 		}
 		if self.hover.as_ref() == Some(&Hit::Menu(card.name.clone())) {
-			self.renderer
-				.fill_round(menu.inset(-4.0), 7.0, self.theme.hover);
+			self.renderer.fill_round(
+				Rect::new(menu.right() - 32.0, menu.y - 2.0, 32.0, 28.0),
+				7.0,
+				self.theme.hover,
+			);
 		}
-		self.renderer.dots(
-			menu.x + menu.w / 2.0,
-			menu.y + menu.h / 2.0,
+		let menu_y = menu.y + menu.h / 2.0;
+		self.renderer.icon(
+			Icon::MoreCircle,
+			menu.right() - 18.0,
+			menu_y,
+			16.0,
 			self.theme.text_secondary,
-			false,
+		);
+		self.renderer.icon(
+			Icon::ChevronDown,
+			menu.right() - 4.0,
+			menu_y,
+			8.0,
+			self.theme.text_secondary,
 		);
 		if let Some(error) = &device.error {
 			self.renderer.text_ex(
 				error,
 				Rect::new(
-					card_rect.x + 14.0,
+					card_rect.x + 16.0,
 					card_rect.y + 142.0,
-					card_rect.w - 28.0,
+					card_rect.w - 32.0,
 					18.0,
 				),
 				9.5,
@@ -1195,9 +1241,42 @@ impl App {
 				self.theme.danger,
 			);
 		}
+		if self.model_popover.as_deref() == Some(card.name.as_str()) {
+			self.draw_model_popover(&device, model);
+		}
 		if self.wifi_popover.as_deref() == Some(card.name.as_str()) {
 			self.draw_wifi_popover(&device, wifi);
 		}
+	}
+
+	fn draw_brightness_slider(&mut self, track: Rect, value: f32, color: u32, glow: bool) {
+		let fraction = ((value - 2.0) / 98.0).clamp(0.0, 1.0);
+		let thumb_radius = 8.0;
+		let travel = (track.w - thumb_radius * 2.0).max(1.0);
+		let cx = track.x + thumb_radius + travel * fraction;
+		let cy = track.y + track.h / 2.0;
+		if glow {
+			let max_radius = 10.0 + fraction * 14.0;
+			for (index, radius) in [
+				max_radius,
+				max_radius - 3.0,
+				max_radius - 6.0,
+				max_radius - 9.0,
+			]
+			.into_iter()
+			.enumerate()
+			{
+				if radius > thumb_radius {
+					self.renderer
+						.circle(cx, cy, radius, with_alpha(color, 8 + index as u8 * 4));
+				}
+			}
+		}
+		self.renderer
+			.tapered_track(track, 3.0, 12.0, color, self.theme.slider_border);
+		self.renderer.circle(cx, cy, thumb_radius, color);
+		self.renderer
+			.ring(cx, cy, thumb_radius, self.theme.slider_thumb_border, 0.75);
 	}
 
 	#[allow(clippy::too_many_arguments)]
@@ -1228,7 +1307,7 @@ impl App {
 					knob_x,
 					center,
 					9.0 + index as f32 * 3.0,
-					rgba(255, 255, 255, 10 - index * 3),
+					with_alpha(color, 18 - index * 5),
 				);
 			}
 		}
@@ -1255,9 +1334,15 @@ impl App {
 				color,
 			);
 		}
-		self.renderer.circle(knob_x, center, 7.0, self.theme.knob);
+		self.renderer.stroke_round(
+			Rect::new(track_x, center - thickness / 2.0, track_w, thickness),
+			thickness / 2.0,
+			self.theme.slider_border,
+			1.0,
+		);
+		self.renderer.circle(knob_x, center, 8.0, self.theme.knob);
 		self.renderer
-			.ring(knob_x, center, 7.0, self.theme.card_border, 1.0);
+			.ring(knob_x, center, 8.0, self.theme.slider_thumb_border, 0.75);
 	}
 
 	fn draw_warmth_slider(&mut self, rect: Rect, value: f32) {
@@ -1265,9 +1350,12 @@ impl App {
 		let track_x = rect.x + 8.0;
 		let track_w = rect.w - 16.0;
 		let t = (value / 100.0).clamp(0.0, 1.0);
-		let knob_x = track_x + track_w * (1.0 - t);
-		self.renderer.gradient_rect(
+		let thumb_radius = 8.0;
+		let travel = (track_w - thumb_radius * 2.0).max(1.0);
+		let knob_x = track_x + thumb_radius + travel * (1.0 - t);
+		self.renderer.gradient_round(
 			Rect::new(track_x, center - 3.0, track_w, 6.0),
+			3.0,
 			&[
 				(0.0, Theme::temperature_color(100.0)),
 				(0.6, Theme::temperature_color(40.0)),
@@ -1275,10 +1363,16 @@ impl App {
 			],
 			true,
 		);
+		self.renderer.stroke_round(
+			Rect::new(track_x, center - 3.0, track_w, 6.0),
+			3.0,
+			self.theme.slider_border,
+			1.0,
+		);
 		self.renderer
-			.circle(knob_x, center, 7.0, Theme::temperature_color(value));
+			.circle(knob_x, center, 8.0, Theme::temperature_color(value));
 		self.renderer
-			.ring(knob_x, center, 7.0, self.theme.card_border, 1.0);
+			.ring(knob_x, center, 8.0, self.theme.slider_thumb_border, 0.75);
 	}
 
 	fn wifi_color(&self, device: &LightDevice) -> u32 {
@@ -1297,7 +1391,7 @@ impl App {
 	fn draw_wifi_popover(&mut self, device: &LightDevice, anchor: Rect) {
 		let text = if let Some(error) = &device.error {
 			format!(
-				"{error} · Address {}. Power cycle the light, wait, then refresh.",
+				"{error} · {}. Power cycle the light, wait, then refresh.",
 				device.host
 			)
 		} else if let Some(wifi) = device.info.as_ref().and_then(|info| info.wifi.as_ref()) {
@@ -1307,7 +1401,7 @@ impl App {
 				"5 GHz"
 			};
 			format!(
-				"{} · {} · {} dBm ({}) · Address {}",
+				"{} · {} · {} dBm ({}) · {}",
 				wifi.ssid,
 				frequency,
 				wifi.rssi,
@@ -1315,30 +1409,57 @@ impl App {
 				device.host
 			)
 		} else {
-			format!("Loading network details · Address {}", device.host)
+			format!("Loading network details · {}", device.host)
 		};
-		let width = 280.0;
-		let mut x = anchor.x + anchor.w / 2.0 - width / 2.0;
-		let y = anchor.y + anchor.h + 6.0;
+		self.draw_tooltip(anchor, &text);
+	}
+
+	fn draw_model_popover(&mut self, device: &LightDevice, anchor: Rect) {
+		let serial = device
+			.info
+			.as_ref()
+			.map(|info| info.serial_number.as_str().trim())
+			.filter(|serial| !serial.is_empty());
+		let text = match serial {
+			Some(serial) => format!("Serial number: {serial}"),
+			None => "Serial number unavailable".to_string(),
+		};
+		self.draw_tooltip(anchor, &text);
+	}
+
+	fn draw_tooltip(&mut self, anchor: Rect, text: &str) {
+		let max_width = 280.0;
+		let (text_width, text_height) = self.renderer.measure(text, 10.0, 400, max_width - 20.0);
+		let width = (text_width + 20.0).clamp(120.0, max_width);
+		let height = text_height + 24.0;
+		let (_, window_height) = self.dip_size();
+		let mut x = if anchor.x + anchor.w / 2.0 > PANEL_WIDTH / 2.0 {
+			anchor.right() - width
+		} else {
+			anchor.x
+		};
 		x = x.clamp(8.0, PANEL_WIDTH - width - 8.0);
-		let (_, height) = self.renderer.measure(&text, 10.0, 400, width - 20.0);
-		let rect = Rect::new(x, y, width, height + 16.0);
+		let mut y = anchor.bottom() + 6.0;
+		if y + height > window_height - 8.0 {
+			y = anchor.y - height - 6.0;
+		}
+		let y = y.clamp(8.0, (window_height - height - 8.0).max(8.0));
+		let rect = Rect::new(x, y, width, height);
 		self.renderer.shadow_round(rect, 8.0);
 		self.renderer.fill_round(rect, 8.0, self.theme.card_bg);
 		self.renderer
 			.stroke_round(rect, 8.0, self.theme.card_border, 1.0);
 		self.renderer.text_ex(
-			&text,
+			text,
 			rect.inset(10.0),
 			10.0,
 			400,
 			TextAlign::Left,
-			false,
+			true,
 			true,
 			self.theme.text_secondary,
 		);
 	}
-
 	fn graph(&self) -> LinkGraph {
 		LinkGraph {
 			groups: self.snapshot.groups.clone(),
@@ -1410,9 +1531,8 @@ impl App {
 		self.cancel_sheet_animation();
 		self.destroy_edit();
 		self.sheet = sheet;
-		self.create_sheet_edit();
 		self.resize_to_content(true);
-		self.position();
+		self.create_sheet_edit();
 		self.invalidate();
 	}
 
@@ -1420,7 +1540,6 @@ impl App {
 		self.destroy_edit();
 		self.sheet = Sheet::None;
 		self.resize_to_content(true);
-		self.position();
 		self.invalidate();
 	}
 
@@ -1632,10 +1751,11 @@ impl App {
 				);
 				self.draw_radio(rects.radios[1].0, *behavior == 2, "Restore Defaults");
 				if *behavior == 2 {
-					self.renderer.sun(
+					self.renderer.icon(
+						Icon::Brightness,
 						rects.slider.x + 10.0,
 						rects.slider.y + 12.0,
-						16.0,
+						20.0,
 						self.theme.text_secondary,
 					);
 					self.draw_slider(
@@ -1859,16 +1979,38 @@ impl App {
 	}
 
 	fn draw_count(&mut self, down: Rect, count: Rect, up: Rect, value: u32) {
-		self.draw_button(down, "−", false, true);
-		self.renderer.text(
+		self.draw_icon_button(down, Icon::Subtract);
+		self.renderer.text_ex(
 			&value.to_string(),
 			count,
 			15.0,
 			600,
 			TextAlign::Center,
+			true,
+			false,
 			self.theme.text,
 		);
-		self.draw_button(up, "+", false, true);
+		self.draw_icon_button(up, Icon::Add);
+	}
+
+	fn draw_icon_button(&mut self, rect: Rect, icon: Icon) {
+		let hovered = self.hovered_rect() == Some(rect);
+		self.renderer.fill_round(
+			rect,
+			7.0,
+			if hovered {
+				self.theme.button_bg_hover
+			} else {
+				self.theme.button_bg
+			},
+		);
+		self.renderer.icon(
+			icon,
+			rect.x + rect.w / 2.0,
+			rect.y + rect.h / 2.0,
+			20.0,
+			self.theme.text,
+		);
 	}
 
 	fn draw_radio(&mut self, rect: Rect, selected: bool, label: &str) {
@@ -1891,29 +2033,38 @@ impl App {
 
 	fn draw_button(&mut self, rect: Rect, label: &str, primary: bool, enabled: bool) {
 		let hovered = self.hovered_rect() == Some(rect);
-		let base = if primary {
+		let accent = primary && enabled;
+		let base = if accent {
 			self.theme.button_accent
 		} else {
 			self.theme.button_bg
 		};
-		let color = if hovered { self.theme.hover } else { base };
+		let color = if hovered {
+			if accent {
+				self.theme.button_accent_hover
+			} else {
+				self.theme.button_bg_hover
+			}
+		} else {
+			base
+		};
 		self.renderer.fill_round(rect, 7.0, color);
-		let text_color = if primary {
+		let text_color = if !enabled {
+			self.theme.text_secondary
+		} else if primary {
 			crate::theme::rgb(255, 255, 255)
 		} else {
 			self.theme.text
 		};
-		self.renderer.text(
+		self.renderer.text_ex(
 			label,
 			rect,
 			11.0,
 			600,
 			TextAlign::Center,
-			if enabled {
-				text_color
-			} else {
-				self.theme.text_secondary
-			},
+			true,
+			false,
+			text_color,
 		);
 	}
 
@@ -1926,6 +2077,14 @@ impl App {
 			Hit::SheetScanAgain => Some(rects.scan_again),
 			Hit::SheetCountDown => Some(rects.count_down),
 			Hit::SheetCountUp => Some(rects.count_up),
+			Hit::DiscoveryAction(id) => {
+				let index = self
+					.snapshot
+					.discovery_rows
+					.iter()
+					.position(|row| &row.id == id)?;
+				rects.rows.get(index).map(|(_, action)| *action)
+			}
 			_ => None,
 		}
 	}
@@ -1986,23 +2145,27 @@ impl App {
 				if row.needs_update {
 					self.draw_button(action, "Update", true, true);
 				} else {
-					self.renderer.text(
+					self.renderer.text_ex(
 						"Added",
 						action,
 						10.0,
 						400,
 						TextAlign::Center,
+						true,
+						false,
 						self.theme.success,
 					);
 				}
 			}
 			DiscoveryState::Missing => {
-				self.renderer.text(
+				self.renderer.text_ex(
 					"Missing",
 					action,
 					10.0,
 					400,
 					TextAlign::Center,
+					true,
+					false,
 					self.theme.danger,
 				);
 			}
@@ -2037,12 +2200,18 @@ impl App {
 			3.0,
 			self.theme.pending,
 		);
-		self.renderer.circle(low_x, center, 7.0, self.theme.knob);
+		self.renderer.stroke_round(
+			Rect::new(track_x, center - 3.0, track_w, 6.0),
+			3.0,
+			self.theme.slider_border,
+			1.0,
+		);
+		self.renderer.circle(low_x, center, 8.0, self.theme.knob);
 		self.renderer
-			.ring(low_x, center, 7.0, self.theme.card_border, 1.0);
-		self.renderer.circle(peak_x, center, 7.0, self.theme.knob);
+			.ring(low_x, center, 8.0, self.theme.slider_thumb_border, 0.75);
+		self.renderer.circle(peak_x, center, 8.0, self.theme.knob);
 		self.renderer
-			.ring(peak_x, center, 7.0, self.theme.card_border, 1.0);
+			.ring(peak_x, center, 8.0, self.theme.slider_thumb_border, 0.75);
 		let low_label = if low < 2 {
 			"Low: Off".to_string()
 		} else {
@@ -2508,12 +2677,8 @@ impl App {
 				MENU_ALL_ON => self.worker.send(Command::SetAllOn(true)),
 				MENU_ALL_OFF => self.worker.send(Command::SetAllOn(false)),
 				MENU_DISCOVER => {
-					self.cancel_sheet_animation();
-					self.sheet = Sheet::Discovery;
+					self.open_sheet(Sheet::Discovery);
 					self.worker.send(Command::Scan);
-					self.resize_to_content(true);
-					self.position();
-					self.invalidate();
 				}
 				MENU_AUTOSTART => {
 					let next = !self.autostart;
@@ -2538,6 +2703,16 @@ impl App {
 	fn on_tick(&mut self) {
 		let mut changed = false;
 		self.clear_missing_preview();
+		if let Some((name, since)) = &self.model_hover {
+			if since.elapsed() >= std::time::Duration::from_millis(500)
+				&& self.model_popover.as_deref() != Some(name.as_str())
+			{
+				self.model_popover = Some(name.clone());
+				changed = true;
+			}
+		} else if self.model_popover.take().is_some() {
+			changed = true;
+		}
 		if let Some((name, since)) = &self.wifi_hover {
 			if since.elapsed() >= std::time::Duration::from_millis(500)
 				&& self.wifi_popover.as_deref() != Some(name.as_str())
@@ -2633,6 +2808,16 @@ impl App {
 		if hover != self.hover {
 			self.hover = hover.clone();
 			self.invalidate();
+		}
+		if self.sheet == Sheet::None
+			&& let Some(Hit::Model(name)) = &hover
+		{
+			if self.model_hover.as_ref().map(|(current, _)| current) != Some(name) {
+				self.model_hover = Some((name.clone(), Instant::now()));
+				self.model_popover = None;
+			}
+		} else if !matches!(hover, Some(Hit::Model(_))) {
+			self.model_hover = None;
 		}
 		if self.sheet == Sheet::None
 			&& let Some(Hit::Wifi(name)) = &hover
@@ -2769,8 +2954,8 @@ impl App {
 			_ => return 50,
 		};
 		let slider = Rect {
-			x: rect.x + 24.0,
-			w: rect.w - 84.0,
+			x: rect.x + 28.0,
+			w: rect.w - 76.0,
 			..rect
 		};
 		let t = ((x - slider.x - 8.0) / (slider.w - 16.0)).clamp(0.0, 1.0);
@@ -2857,6 +3042,7 @@ impl App {
 					Some(name)
 				};
 			}
+			Some(Hit::Model(_)) => {}
 			Some(hit) => {
 				self.pressed = Some(hit);
 			}
@@ -2915,11 +3101,8 @@ impl App {
 		match hit {
 			Hit::Refresh => self.worker.send(Command::Refresh),
 			Hit::Scan => {
-				self.sheet = Sheet::Discovery;
+				self.open_sheet(Sheet::Discovery);
 				self.worker.send(Command::Scan);
-				self.resize_to_content(true);
-				self.position();
-				self.invalidate();
 			}
 			Hit::AllOn => self.worker.send(Command::SetAllOn(true)),
 			Hit::AllOff => self.worker.send(Command::SetAllOn(false)),
@@ -2967,7 +3150,7 @@ impl App {
 			| Hit::SheetBrightness
 			| Hit::SheetWarmth => self.sheet_action(hit),
 			Hit::DiscoveryAction(id) => self.discovery_action(&id),
-			Hit::Card(_) | Hit::Brightness(_) | Hit::Warmth(_) | Hit::Wifi(_) => {}
+			Hit::Card(_) | Hit::Brightness(_) | Hit::Warmth(_) | Hit::Model(_) | Hit::Wifi(_) => {}
 		}
 	}
 
@@ -3040,14 +3223,17 @@ unsafe extern "system" fn window_proc(
 	match message {
 		WM_NCCREATE => LRESULT(1),
 		WM_PAINT => {
+			let mut paint = PAINTSTRUCT::default();
+			let dc = unsafe { BeginPaint(window, &mut paint) };
 			if let Some(app) = app_mut(window) {
-				app.on_paint();
+				app.on_paint(dc);
 			}
 			unsafe {
-				let _ = ValidateRect(Some(window), None);
+				let _ = EndPaint(window, &paint);
 			}
 			LRESULT(0)
 		}
+		WM_ERASEBKGND => LRESULT(1),
 		WM_APP_UPDATE => {
 			if let Some(app) = app_mut(window) {
 				app.refresh_snapshot();

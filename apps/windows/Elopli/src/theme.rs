@@ -9,6 +9,10 @@ pub const fn rgba(red: u8, green: u8, blue: u8, alpha: u8) -> u32 {
 	((alpha as u32) << 24) | ((red as u32) << 16) | ((green as u32) << 8) | blue as u32
 }
 
+pub const fn with_alpha(color: u32, alpha: u8) -> u32 {
+	(color & 0x00FF_FFFF) | ((alpha as u32) << 24)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Theme {
 	pub dark: bool,
@@ -29,7 +33,11 @@ pub struct Theme {
 	pub hover: u32,
 	pub pressed: u32,
 	pub button_bg: u32,
+	pub button_bg_hover: u32,
 	pub button_accent: u32,
+	pub button_accent_hover: u32,
+	pub slider_border: u32,
+	pub slider_thumb_border: u32,
 	pub sheet_backdrop: u32,
 	pub edit_bg: u32,
 }
@@ -60,7 +68,11 @@ impl Theme {
 				hover: rgba(255, 255, 255, 18),
 				pressed: rgba(255, 255, 255, 32),
 				button_bg: rgba(255, 255, 255, 14),
+				button_bg_hover: rgb(58, 58, 60),
 				button_accent: rgb(10, 132, 255),
+				button_accent_hover: rgb(0, 105, 220),
+				slider_border: rgba(255, 255, 255, 82),
+				slider_thumb_border: rgba(0, 0, 0, 80),
 				sheet_backdrop: rgba(0, 0, 0, 120),
 				edit_bg: rgb(28, 28, 30),
 			}
@@ -84,7 +96,11 @@ impl Theme {
 				hover: rgba(0, 0, 0, 12),
 				pressed: rgba(0, 0, 0, 24),
 				button_bg: rgba(0, 0, 0, 8),
+				button_bg_hover: rgb(229, 229, 234),
 				button_accent: rgb(0, 122, 255),
+				button_accent_hover: rgb(0, 100, 210),
+				slider_border: rgba(0, 0, 0, 82),
+				slider_thumb_border: rgba(0, 0, 0, 56),
 				sheet_backdrop: rgba(0, 0, 0, 90),
 				edit_bg: rgb(255, 255, 255),
 			}

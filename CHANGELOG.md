@@ -18,6 +18,7 @@ The format follows Keep a Changelog, and the project uses semantic versioning.
 - A Windows portable ZIP, generated Scoop manifest, checksums, icon, and version resource.
 - A Windows app CI job and `scripts/build-windows.ps1`.
 - Ctrl-click linking and `links.json` persistence on Windows.
+- A hidden-by-default serial tooltip on the Windows card model name; serials stay in memory and are never persisted or logged.
 
 ### Changed
 
@@ -31,6 +32,8 @@ The format follows Keep a Changelog, and the project uses semantic versioning.
 - Linked slider writes use one coordinator per target group.
 - Accessibility and localization are explicitly deferred until after v1.
 - Windows refresh and discovery run off the command thread so offline lights cannot starve UI actions.
+- Newly discovered lights use the device display name when it is unique; a duplicate display name falls back to the mDNS instance.
+- The Windows panel uses Fluent UI System Icons, double-buffered painting, overlay sheets, field-anchored tooltips, and macOS-style tapered slider tracks and thumbs.
 - mDNS picks a deterministic private IPv4 address and surfaces browse failures.
 - The workspace version in `Cargo.toml` is the single version source for both apps.
 

@@ -4,12 +4,9 @@ use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::Shell::{
 	NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NOTIFYICONDATAW, Shell_NotifyIconW,
 };
-use windows::Win32::UI::WindowsAndMessaging::{
-	HICON, IDI_APPLICATION, IMAGE_ICON, LR_DEFAULTSIZE, LR_SHARED, LoadIconW, LoadImageW,
-};
-use windows::core::PCWSTR;
+use windows::Win32::UI::WindowsAndMessaging::{IDI_APPLICATION, LoadIconW};
 
-use crate::win32::{TRAY_ID, WM_APP_TRAY, wide};
+use crate::win32::{TRAY_ID, WM_APP_TRAY, app_icon, wide};
 
 pub struct Tray {
 	window: HWND,
@@ -38,18 +35,8 @@ impl Tray {
 			uCallbackMessage: WM_APP_TRAY,
 			..Default::default()
 		};
-		let icon = unsafe {
-			LoadImageW(
-				None,
-				PCWSTR(1 as *const u16),
-				IMAGE_ICON,
-				0,
-				0,
-				LR_DEFAULTSIZE | LR_SHARED,
-			)
-		};
-		if let Ok(icon) = icon {
-			data.hIcon = HICON(icon.0);
+		if let Some(icon) = app_icon() {
+			data.hIcon = icon;
 		} else if let Ok(icon) = unsafe { LoadIconW(None, IDI_APPLICATION) } {
 			data.hIcon = icon;
 		}
