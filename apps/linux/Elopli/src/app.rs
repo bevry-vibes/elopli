@@ -1038,6 +1038,7 @@ impl Card {
 			.tooltip_text("Light menu")
 			.build();
 		menu.add_css_class("flat");
+		menu.add_css_class("elopli-menu");
 		menu.set_size_request(30, 30);
 		menu.set_direction(gtk::ArrowType::None);
 		menu.set_valign(gtk::Align::Center);

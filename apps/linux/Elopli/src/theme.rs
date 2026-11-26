@@ -39,6 +39,15 @@ switch:checked slider {
     font-weight: 600;
 }
 
+/* The light menu is flat at rest; hover, press, open, and focus use the
+   theme's normal button styling. */
+menubutton.elopli-menu > button:not(:hover):not(:active):not(:checked):not(:focus) {
+    background: none;
+    background-image: none;
+    border: none;
+    box-shadow: none;
+}
+
 
 .elopli-hint {
     font-size: 11px;
