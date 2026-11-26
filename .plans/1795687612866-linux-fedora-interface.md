@@ -171,3 +171,6 @@ The first Soar install exposed the difference between a portable tarball and a d
 
 - The WiFi button now uses the same 7 px margin as the power switch, so the allocation and hover borders sit equally far from the toggle. The WiFi icon gains the same inset hover treatment as the menu button.
 - Card names use weight 600 now that the CSS class is actually attached; 800 was confirmed working but 600 is the chosen semibold.
+
+- The switch slider has an explicit 200 ms CSS transition, so programmatic All On/All Off changes animate like user toggles (subject to the desktop's enable-animations setting).
+- The card menu and settings menu share hover, active, checked, and transition rules. The card menu regains a visible pressed state.

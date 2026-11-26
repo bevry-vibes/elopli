@@ -140,3 +140,7 @@ Answer: no. Plain GTK4 is sufficient for this delivery.
 > bring the wifi icon closer, so their borders on hover are the same distance
 
 > now that you fixzed the emphasis, reduce the bold back to 600 so I can see it
+
+> clicking the on all and off all buttons do not animate the light toggles, is animating them possible?
+
+> the hover and press state of the light menu button isn't the same as the prior hover and press state it was before, when the button looked like the menubar settings button
