@@ -332,7 +332,6 @@ dependencies = [
  "elopli-session",
  "embed-resource",
  "windows",
- "windows-numerics",
  "winreg",
 ]
 
