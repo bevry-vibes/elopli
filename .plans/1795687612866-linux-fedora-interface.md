@@ -4,7 +4,7 @@ Assisted-by: OpenCode · DeepSeek V4.1 Flash <opencode-opencodego-deepseekv41fla
 
 Provenance: [1795687612866-linux-fedora-interface.prompts.md](1795687612866-linux-fedora-interface.prompts.md)
 
-**Status:** first delivery implemented on Fedora 45 Workstation, GNOME 51, Wayland · 2026-11-26 · full UI write smoke test, package installation, and Ubuntu 24.04 runtime validation open.
+**Status:** delivery complete on Fedora 45 Workstation, GNOME 51, Wayland · 2026-11-26 · pushed · Ubuntu 24.04, KDE, and AppImage release publication open.
 
 This plan starts the Linux UI recorded as an open item in [DESIGN.md](../../DESIGN.md) and [docs/platforms.md](../../docs/platforms.md). Evergreen decisions stay in DESIGN.md; this file records the dated work.
 
@@ -115,9 +115,11 @@ Header actions: refresh, all on, all off, discover, settings menu. Settings menu
 - [x] The panel opens from the tray menu and displays a card for each configured light; the three-light panel was rendered against real hardware.
 - [x] `desktop-file-validate` and `appstreamcli validate` accept the packaged metadata.
 - [x] The tray registers with `org.kde.StatusNotifierWatcher`, single instance forwards activation, and Launch at Login writes the XDG entry.
-- [ ] Write actions from the panel (power, sliders, rename, pulse, sweep, discovery add/update) need a full click-through smoke test.
-- [ ] Install the tarball on a clean Fedora and Ubuntu 24.04 machine and verify the desktop icon, tray icon, and autostart.
-- [ ] KDE Plasma validation and the AppImage branch with `appimagetool`.
+- [x] Write actions from the panel (power, sliders, linking, menus, rename, power-on, pulse, sweep, discovery) were exercised on the Fedora hardware.
+- [x] Installed the AppImage through Soar on Fedora 45; the launcher icon, tray icon, single instance, and autostart were verified.
+- [ ] Verify a clean Ubuntu 24.04 install.
+- [x] Built the AppImage locally with the Rust `appimagetool`.
+- [ ] KDE Plasma validation and public AppImage/Soar release publication.
 
 ## Delivery notes added after the first hardware run
 
@@ -185,3 +187,19 @@ The first Soar install exposed the difference between a portable tarball and a d
 
 - The flat-state selector no longer excludes focus, so a menu returns to its rest look when the popover closes or focus moves away, instead of keeping a theme focus/click box.
 - The power margin is 6 px and the WiFi margin 6 px: the toggle moves 1 px left onto the slider column, and the WiFi button moves right so the hover-border gaps on both sides are equal. The visible glyph gaps differ because the menu dots are narrower, but the special-state borders match.
+
+## Final review and push
+
+- `cargo fmt --all -- --check`, workspace clippy with `-D warnings`, Linux app clippy, workspace tests, and Linux app tests pass.
+- `./scripts/build-linux.sh` builds the release binaries, validates the desktop entry and AppStream metadata, writes the tarball and AppImage, and packages the docs and screenshots.
+- The installed AppImage passes `--smoke-test` against all three lights.
+- Final screenshots are committed in `docs/screenshots/`:
+  - `linux-panel.png`
+  - `linux-rename.png`
+  - `linux-power-on.png`
+  - `linux-pulse.png`
+  - `linux-sweep.png`
+  - `linux-discovery.png`
+- The screenshot hook now accepts `ELOPLI_SCREENSHOT_SHEET=rename|power-on|pulse|sweep|discovery`.
+- The hard-won Linux lessons and decisions are recorded in DESIGN section 6 and D29-D31: `GtkSwitch` animation via `activate`, fixed value-label widths, normal-state-only menu CSS with a reserved border, x-height title alignment, and Soar package naming.
+- The Linux CI job is committed. Its first run happens on the pushed commit.

@@ -160,3 +160,7 @@ Answer: no. Plain GTK4 is sufficient for this delivery.
 > the on/off toggles now need to be moved 1px left
 >
 > the wifi icon is too far left, remember their whitespace gap in their special states is meant to be the same
+
+> this is good, prepare for push (code and proejct quality review, hard won lessons, etc) then push, and we'll return to macos
+>
+> also this time get screenshots of everything, all the sheets, as this interface looks really good
