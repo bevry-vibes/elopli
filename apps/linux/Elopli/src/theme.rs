@@ -36,7 +36,7 @@ switch:checked slider {
 }
 
 .elopli-card-title {
-    font-weight: 800;
+    font-weight: 600;
 }
 
 menubutton.elopli-menu > button {
@@ -46,6 +46,7 @@ menubutton.elopli-menu > button {
     box-shadow: none;
 }
 
+button.elopli-hover:hover,
 menubutton.elopli-menu > button:hover {
     background-color: alpha(@theme_fg_color, 0.06);
     box-shadow: inset 0 0 0 1px alpha(@theme_fg_color, 0.18);

@@ -968,8 +968,9 @@ impl Card {
 			.tooltip_text("WiFi details")
 			.build();
 		wifi.add_css_class("flat");
+		wifi.add_css_class("elopli-hover");
 		wifi.set_size_request(30, 30);
-		wifi.set_margin_end(11);
+		wifi.set_margin_end(7);
 		wifi.set_valign(gtk::Align::Center);
 		top.append(&wifi);
 
