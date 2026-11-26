@@ -146,3 +146,5 @@ Answer: no. Plain GTK4 is sufficient for this delivery.
 > the hover and press state of the light menu button isn't the same as the prior hover and press state it was before, when the button looked like the menubar settings button
 
 > neither change seems to have done anything...
+
+> so that light menu button is fine, but I want its normal state to not have border/background, only getting those thigns in its special states

@@ -177,3 +177,5 @@ The first Soar install exposed the difference between a portable tarball and a d
 
 - The CSS transition did not animate the switch because GtkSwitch moves its handle in code, and `set_active()` jumps straight to the target. Programmatic changes now call `activate()` once the switch is mapped; `set_active()` is reserved for the pre-map state. This uses GtkSwitch's own 100 ms animation path.
 - The custom `elopli-menu` and `elopli-hover` classes and CSS were suppressing the theme's menu states. They are removed, so the card and settings menu buttons use GTK's default hover and press appearance again, including the rounded box.
+
+- The light menu button is transparent with no border only in its normal state. A `:not(:hover):not(:active):not(:checked):not(:focus)` rule flattens the rest state, while the theme supplies the rounded background and border for hover, press, open, and focus.
