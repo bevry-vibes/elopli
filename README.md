@@ -23,6 +23,25 @@ Verified on:
 
 Serial numbers and MAC addresses are discarded by the client.
 
+## Screenshots
+
+The menu panel shows a card for each light.
+The magenta borders show linked lights; here Left and Right are linked.
+
+<p>
+  <img src="docs/screenshots/menu-panel.png" width="460" alt="Elopli menu panel with Back on, and Left and Right linked">
+</p>
+
+Each light's menu opens the pulse and sweep editors.
+
+<p>
+  <img src="docs/screenshots/pulse.png" width="460" alt="Pulse editor with a count of 3, a 1.0s duration, and a low-to-peak range">
+</p>
+
+<p>
+  <img src="docs/screenshots/sweep.png" width="460" alt="Sweep editor with a count of 1, a 1.0s duration, and brightness set to N/A">
+</p>
+
 ## Features
 
 - Power on and off.
