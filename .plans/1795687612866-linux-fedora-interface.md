@@ -153,3 +153,5 @@ The first Soar install exposed the difference between a portable tarball and a d
 - Cards drag from the background; the grip icons are gone. The drag source ignores presses that start on a slider, switch, or button. The DnD payload is a plain string so drop targets accept it.
 - Fixed a label bug where dragging the warmth slider rewrote the brightness value text and made it flicker.
 - The installed AppImage is live and the tray is registered. The remaining user check is the drop half of card reordering.
+
+- The power switch is measured against the brightness slider at runtime. Its margin and the WiFi button's margin are both set so the on-knob centre matches the slider's rightmost thumb centre and the gaps on each side of the switch stay equal. The measured offset was 2 px in the Fedora 45 Adwaita dark theme.

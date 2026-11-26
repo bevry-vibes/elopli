@@ -104,3 +104,9 @@ Answer: no. Plain GTK4 is sufficient for this delivery.
 > our light toggle button looks different to the fedora settings app toggle buttons, why?
 >
 > is it possible to remove the thin line between the app window's menu/title-bar and its content?
+
+> what if we move the light on/off toggle left a little bit, to even out the spacing between it and the menu icon and the wifi icon
+>
+> move it left enough so that if the sliders are rightmost, their circle and the on toggle circle and perfectly aligned
+>
+> then even the spacing between it and the wifi icon and the menu icon
