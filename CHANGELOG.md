@@ -20,7 +20,7 @@ The format follows Keep a Changelog, and the project uses semantic versioning.
 - `on` and `toggle` now floor brightness at 2% and treat `on` with brightness below 2% as off.
 - Animation frames use a persistent-only transport path and never fall back to `curl`.
 - The registry path is platform-stable for the app and App Intents; the CLI keeps the local-file preference.
-- Sweep ramps an off light from 2% to its working brightness over up to 1 s before the temperature sweep, then fades to 0%, and weights the final brightness restore.
+- Sweep runs warm on the left and cool/blue on the right. An off light ignores its stored temperature, starts at the warm end, ramps from 2% to its working brightness, then fades to 0% at the cool end.
 - File locks use the standard library instead of `fs2`.
 - Group links are maximal, non-overlapping card groups; field-only links no longer show group actions.
 - Linked slider writes use one coordinator per target group.

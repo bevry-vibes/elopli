@@ -22,7 +22,7 @@ struct SweepSheet: View {
 					.font(.caption)
 					.foregroundStyle(.secondary)
 			}
-			Text("Each sweep is one warm-to-cool fade. Count 3 runs warm → cool three times, then restores the original values.")
+			Text("Each sweep is one warm-to-cool fade, left to right. Count 3 runs warm → cool three times, then restores the original values.")
 				.font(.caption)
 				.foregroundStyle(.secondary)
 

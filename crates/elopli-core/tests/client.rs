@@ -507,6 +507,7 @@ fn off_light_sweep_ramps_brightness_before_temperature() {
 	let client = client(port);
 	client.set_on(false).unwrap();
 	let original = client.state().unwrap();
+	let before = state.lock().unwrap().updates.len();
 
 	client
 		.sweep(SweepConfig {
@@ -516,19 +517,16 @@ fn off_light_sweep_ramps_brightness_before_temperature() {
 		})
 		.unwrap();
 
-	let updates = state.lock().unwrap().updates.clone();
-	let first_brightness = updates
-		.iter()
-		.filter_map(|update| update["lights"][0]["brightness"].as_u64())
-		.next()
-		.unwrap();
-	assert!(first_brightness <= 2);
-	let first_temperature_change = updates.iter().position(|update| {
+	let updates = state.lock().unwrap().updates[before..].to_vec();
+	let first = &updates[0]["lights"][0];
+	assert!(first["brightness"].as_u64().is_some_and(|value| value <= 2));
+	assert_eq!(first["temperature"].as_u64(), Some(344));
+	let first_cool = updates.iter().position(|update| {
 		update["lights"][0]["temperature"]
 			.as_u64()
-			.is_some_and(|temperature| temperature != u64::from(original.temperature))
+			.is_some_and(|temperature| temperature < 344)
 	});
-	if let Some(index) = first_temperature_change {
+	if let Some(index) = first_cool {
 		assert!(updates[..index].iter().any(|update| {
 			update["lights"][0]["brightness"]
 				.as_u64()

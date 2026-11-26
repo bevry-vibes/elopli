@@ -28,6 +28,7 @@ Serial numbers and MAC addresses are discarded by the client.
 - Power on and off.
 - Brightness from 2 to 100. The light switches off below 2.
 - Warmth from 0 (cool) to 100 (warm), plus Kelvin and mired.
+  The temperature slider runs warm on the left to cool/blue on the right, matching the sweep direction.
 - Rename the light.
 - Power-on behaviour: restore the last setting, or restore defaults.
 - WiFi icon with SSID, frequency, RSSI, quality, and address on hover.

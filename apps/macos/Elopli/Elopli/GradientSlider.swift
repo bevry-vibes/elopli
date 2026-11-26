@@ -5,6 +5,7 @@ struct GradientSlider: View {
 	let range: ClosedRange<Double>
 	let gradient: Gradient
 	let thumbColor: Color
+	var isReversed = false
 	var onEditingChanged: (Bool) -> Void = { _ in }
 	var onValueChanged: (Double) -> Void = { _ in }
 
@@ -13,7 +14,8 @@ struct GradientSlider: View {
 	private var fraction: Double {
 		let span = range.upperBound - range.lowerBound
 		guard span > 0 else { return 0 }
-		return min(1, max(0, (value - range.lowerBound) / span))
+		let raw = min(1, max(0, (value - range.lowerBound) / span))
+		return isReversed ? 1 - raw : raw
 	}
 
 	var body: some View {
@@ -58,8 +60,9 @@ struct GradientSlider: View {
 						}
 						let location = gesture.location.x - thumbSize / 2
 						let newFraction = min(1, max(0, location / travel))
+						let valueFraction = isReversed ? 1 - newFraction : newFraction
 						let newValue = range.lowerBound
-							+ newFraction * (range.upperBound - range.lowerBound)
+							+ valueFraction * (range.upperBound - range.lowerBound)
 						value = newValue
 						onValueChanged(newValue)
 					}

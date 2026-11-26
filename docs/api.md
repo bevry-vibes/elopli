@@ -357,7 +357,7 @@ current → warm → cool → warm → cool → warm → cool → original
 
 A brightness override holds one brightness for the whole sweep.
 `0%` leaves the current brightness alone.
-An off light turns on at 2%, ramps to its stored brightness (or the override) before the temperature sweep, then fades to 0% and restores its exact power state.
+An off light ignores its stored temperature, starts at the warm end, turns on at 2%, ramps to its stored brightness (or the override), then sweeps to the cool end, fades to 0%, and restores its exact power state.
 The final segment is weighted by the larger of its temperature and brightness distances.
 The sweep restores the original on, brightness, and temperature values when it finishes.
 Cancellation and external-change handling are shared with the pulse.

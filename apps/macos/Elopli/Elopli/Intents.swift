@@ -427,7 +427,7 @@ struct SetWarmthIntent: AppIntent {
 	static var displayRepresentation: DisplayRepresentation {
 		DisplayRepresentation(
 			title: "Set Light Warmth",
-			image: DisplayRepresentation.Image(systemName: "thermometer.medium")
+			image: DisplayRepresentation.Image(systemName: "flame")
 		)
 	}
 
@@ -773,7 +773,7 @@ struct ElopliShortcuts: AppShortcutsProvider {
 				"Set warmth with \(.applicationName)"
 			],
 			shortTitle: "Set Warmth",
-			systemImageName: "thermometer.medium"
+			systemImageName: "flame"
 		)
 		AppShortcut(
 			intent: GetStateIntent(),

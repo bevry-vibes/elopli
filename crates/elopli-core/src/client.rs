@@ -434,22 +434,31 @@ impl ElopliClient {
 			config.segment_durations(original.temperature, original.brightness, originally_on)?;
 
 		if !originally_on {
-			// Bring an off light up to its working brightness before the
-			// temperature sweep. The turn-on time comes out of the initial
-			// segment, so the total duration stays the same.
+			// Start an off light at the warm end of the sweep. Bring it up to
+			// its working brightness first, then keep the rest of the initial
+			// budget for the first warm-to-cool fade.
 			let turn_on_ms = durations[0].saturating_sub(100).min(1_000);
 			let initial_brightness = if turn_on_ms > 0 { 2 } else { start_brightness };
-			expected = self.write_pulse_update(Update {
-				on: Some(true),
+			// Stage the visible start while the light is still off. This
+			// discards the stored temperature and prevents a power-on flash at
+			// the stored brightness.
+			self.write_pulse_update(Update {
+				on: Some(false),
 				brightness: Some(initial_brightness),
+				temperature: Some(warm),
 				..Update::default()
 			})?;
-			if turn_on_ms > 0 && start_brightness > 2 {
-				if let Some(outcome) = self.ramp_to(
+			expected = self.write_pulse_update(Update {
+				on: Some(true),
+				..Update::default()
+			})?;
+			if turn_on_ms > 0
+				&& start_brightness > 2
+				&& let Some(outcome) = self.ramp_to(
 					token,
 					expected,
 					start_brightness,
-					original.temperature,
+					warm,
 					Some(true),
 					turn_on_ms,
 					0,
@@ -459,10 +468,10 @@ impl ElopliClient {
 					&mut expected,
 					Some(&mut last_external_check),
 				)? {
-					return Ok(outcome);
-				}
-				durations[0] = durations[0].saturating_sub(turn_on_ms).max(1);
+				return Ok(outcome);
 			}
+			let leftover = durations[0].saturating_sub(turn_on_ms);
+			durations[1] = durations[1].saturating_add(leftover);
 		} else if config.brightness.is_some() {
 			expected = self.write_pulse_update(Update {
 				on: Some(true),
@@ -471,21 +480,23 @@ impl ElopliClient {
 			})?;
 		}
 
-		// Move from the current temperature to the warm end first.
-		if let Some(outcome) = self.ramp_to(
-			token,
-			expected,
-			start_brightness,
-			warm,
-			Some(true),
-			durations[0],
-			0,
-			false,
-			false,
-			true,
-			&mut expected,
-			Some(&mut last_external_check),
-		)? {
+		// An on light moves from its current temperature to the warm end first.
+		// An off light was already placed at the warm end above.
+		if originally_on
+			&& let Some(outcome) = self.ramp_to(
+				token,
+				expected,
+				start_brightness,
+				warm,
+				Some(true),
+				durations[0],
+				0,
+				false,
+				false,
+				true,
+				&mut expected,
+				Some(&mut last_external_check),
+			)? {
 			return Ok(outcome);
 		}
 
@@ -526,7 +537,8 @@ impl ElopliClient {
 			}
 		}
 
-		// Return from the cool end to the original temperature and brightness.
+		// Return to the original values for an on light. An off light stays at
+		// the cool end while its brightness fades out.
 		if let Some(outcome) = self.ramp_to(
 			token,
 			expected,
@@ -537,7 +549,7 @@ impl ElopliClient {
 			0,
 			false,
 			true,
-			true,
+			originally_on,
 			&mut expected,
 			Some(&mut last_external_check),
 		)? {

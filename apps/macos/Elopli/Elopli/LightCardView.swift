@@ -215,18 +215,19 @@ struct LightCardView: View {
 
 	private var warmthRow: some View {
 		HStack {
-			Image(systemName: "thermometer.medium")
+			Image(systemName: "flame")
 				.foregroundStyle(.secondary)
 				.frame(width: 16)
 			GradientSlider(
 				value: $warmth,
 				range: 0...100,
 				gradient: Gradient(stops: [
-					.init(color: temperatureColor(0), location: 0),
-					.init(color: temperatureColor(40), location: 0.4),
-					.init(color: temperatureColor(100), location: 1),
+					.init(color: temperatureColor(100), location: 0),
+					.init(color: temperatureColor(40), location: 0.6),
+					.init(color: temperatureColor(0), location: 1),
 				]),
 				thumbColor: temperatureColor(warmth),
+				isReversed: true,
 				onEditingChanged: { editing in
 					isEditingWarmth = editing
 					if !editing {

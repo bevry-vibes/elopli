@@ -226,7 +226,7 @@ Rules:
 - Count `n` means `n` warm-to-cool moves.
 - An optional brightness override holds one brightness for the whole sweep.
 - A brightness override of 0 means "leave brightness alone".
-- A light that is off or below 2% turns on at 2%, ramps to its stored brightness (or the override) over up to 1 s taken from the initial segment, then sweeps.
+- A light that is off or below 2% ignores its stored temperature, starts at the warm end, turns on at 2%, ramps to its stored brightness (or the override) over up to 1 s, then sweeps to the cool end.
 - The final segment restores the original temperature and brightness for a visible light; for an off light it fades to 0% and then restores the exact original power state.
 - The final segment's weight is the larger of its temperature and brightness distances.
 - A sweep has no low hold.
@@ -300,6 +300,7 @@ The distance-weighted budget and the endpoint hold provide the smoothness.
 
 Each light is a card with power, brightness, warmth, WiFi, rename, power-on behaviour, and animation actions.
 The card title is the local registry name; the subtitle shows the light's hardware display name when it differs, so Rename is visible immediately.
+The temperature slider runs warm on the left to cool/blue on the right, matching the sweep order.
 The brightness slider colour follows the active warmth.
 The brightness slider is thin at the low end and thick at the high end.
 The slider control has a glow whose size follows brightness.

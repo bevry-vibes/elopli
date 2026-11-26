@@ -85,7 +85,7 @@ struct PowerOnSheet: View {
 						.frame(width: 38, alignment: .trailing)
 				}
 				HStack {
-					Image(systemName: "thermometer.medium")
+					Image(systemName: "flame")
 						.foregroundStyle(.secondary)
 						.frame(width: 16)
 					Slider(value: $warmth, in: 0...100)

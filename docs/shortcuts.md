@@ -73,7 +73,7 @@ Sweep parameters:
 
 - **Count** — number of warm-to-cool sweeps, 1 to 20.
 - **Duration** — full duration of the sweep animation (default `1.0s`). Accepts seconds by default, or `s`, `ms`, `m`, or `h`. The first and final moves are weighted by distance, and the final weight includes any brightness restoration.
-- **Brightness** — brightness to hold during the sweep. 0 or 1 means N/A and keeps the current brightness; 2 to 100 is held for the whole sweep. An off light ramps up to its stored brightness first, then sweeps, then turns off.
+- **Brightness** — brightness to hold during the sweep. 0 or 1 means N/A and keeps the current brightness; 2 to 100 is held for the whole sweep. An off light ignores its stored temperature, starts at the warm end, ramps up to its stored brightness, sweeps to the cool end, then turns off.
 
 ## Local network permission
 
