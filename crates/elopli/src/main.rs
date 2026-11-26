@@ -446,16 +446,22 @@ fn error_record(device: &Device, error: &ElopliError) -> Value {
 	Value::Object(record)
 }
 
+fn success_record(device: &Device, add: impl FnOnce(&mut Map<String, Value>)) -> Value {
+	let mut record = base(device);
+	record.insert("reachable".into(), json!(true));
+	add(&mut record);
+	Value::Object(record)
+}
+
+fn add_state(record: &mut Map<String, Value>, state: LightState) {
+	record.insert("state".into(), json!(if state.on { "on" } else { "off" }));
+	merge(record, state.to_json());
+}
+
 fn state_record(device: &Device, settings: &Settings) -> Value {
 	let client = client(device, settings);
 	match client.state() {
-		Ok(state) => {
-			let mut record = base(device);
-			record.insert("reachable".into(), json!(true));
-			record.insert("state".into(), json!(if state.on { "on" } else { "off" }));
-			merge(&mut record, state.to_json());
-			Value::Object(record)
-		}
+		Ok(state) => success_record(device, |record| add_state(record, state)),
 		Err(error) => error_record(device, &error),
 	}
 }
@@ -488,13 +494,7 @@ fn apply_record(
 	let client = client(device, settings);
 	let result = wait_for_reachable(&client, wait).and_then(|()| operation(&client));
 	match result {
-		Ok(state) => {
-			let mut record = base(device);
-			record.insert("reachable".into(), json!(true));
-			record.insert("state".into(), json!(if state.on { "on" } else { "off" }));
-			merge(&mut record, state.to_json());
-			Value::Object(record)
-		}
+		Ok(state) => success_record(device, |record| add_state(record, state)),
 		Err(error) => error_record(device, &error),
 	}
 }
@@ -502,12 +502,9 @@ fn apply_record(
 fn identify_record(device: &Device, settings: &Settings) -> Value {
 	let client = client(device, settings);
 	match client.identify() {
-		Ok(()) => {
-			let mut record = base(device);
-			record.insert("reachable".into(), json!(true));
+		Ok(()) => success_record(device, |record| {
 			record.insert("identified".into(), json!(true));
-			Value::Object(record)
-		}
+		}),
 		Err(error) => error_record(device, &error),
 	}
 }
@@ -515,17 +512,10 @@ fn identify_record(device: &Device, settings: &Settings) -> Value {
 fn info_record(device: &Device, settings: &Settings) -> Value {
 	let client = client(device, settings);
 	match client.snapshot() {
-		Ok(snapshot) => {
-			let mut record = base(device);
-			record.insert("reachable".into(), json!(true));
-			merge(&mut record, snapshot.info.to_json());
-			record.insert(
-				"state".into(),
-				json!(if snapshot.state.on { "on" } else { "off" }),
-			);
-			merge(&mut record, snapshot.state.to_json());
-			Value::Object(record)
-		}
+		Ok(snapshot) => success_record(device, |record| {
+			merge(record, snapshot.info.to_json());
+			add_state(record, snapshot.state);
+		}),
 		Err(error) => error_record(device, &error),
 	}
 }
@@ -544,12 +534,7 @@ fn power_on_record(
 		None => client.power_on_settings(),
 	});
 	match result {
-		Ok(power_on) => {
-			let mut record = base(device);
-			record.insert("reachable".into(), json!(true));
-			merge(&mut record, power_on.to_json());
-			Value::Object(record)
-		}
+		Ok(power_on) => success_record(device, |record| merge(record, power_on.to_json())),
 		Err(error) => error_record(device, &error),
 	}
 }
@@ -557,12 +542,9 @@ fn power_on_record(
 fn rename_record(device: &Device, settings: &Settings, name: &str, wait: f64) -> Value {
 	let client = client(device, settings);
 	match wait_for_reachable(&client, wait).and_then(|()| client.rename(name)) {
-		Ok(display_name) => {
-			let mut record = base(device);
-			record.insert("reachable".into(), json!(true));
+		Ok(display_name) => success_record(device, |record| {
 			record.insert("display_name".into(), json!(display_name));
-			Value::Object(record)
-		}
+		}),
 		Err(error) => error_record(device, &error),
 	}
 }
@@ -570,12 +552,8 @@ fn rename_record(device: &Device, settings: &Settings, name: &str, wait: f64) ->
 fn pulse_record(device: &Device, settings: &Settings, config: PulseConfig) -> Value {
 	let client = client(device, settings);
 	match client.pulse(config) {
-		Ok(outcome) => {
-			let state = *outcome.state();
-			let mut record = base(device);
-			record.insert("reachable".into(), json!(true));
-			record.insert("state".into(), json!(if state.on { "on" } else { "off" }));
-			merge(&mut record, state.to_json());
+		Ok(outcome) => success_record(device, |record| {
+			add_state(record, *outcome.state());
 			record.insert("pulse_completed".into(), json!(outcome.completed()));
 			if let Some(reason) = outcome.cancellation() {
 				record.insert("pulse_cancelled".into(), json!(reason.label()));
@@ -584,8 +562,7 @@ fn pulse_record(device: &Device, settings: &Settings, config: PulseConfig) -> Va
 			record.insert("pulse_duration_ms".into(), json!(config.duration_ms));
 			record.insert("pulse_value".into(), json!(config.value));
 			record.insert("pulse_low".into(), json!(config.low));
-			Value::Object(record)
-		}
+		}),
 		Err(error) => error_record(device, &error),
 	}
 }
@@ -593,12 +570,8 @@ fn pulse_record(device: &Device, settings: &Settings, config: PulseConfig) -> Va
 fn sweep_record(device: &Device, settings: &Settings, config: SweepConfig) -> Value {
 	let client = client(device, settings);
 	match client.sweep(config) {
-		Ok(outcome) => {
-			let state = *outcome.state();
-			let mut record = base(device);
-			record.insert("reachable".into(), json!(true));
-			record.insert("state".into(), json!(if state.on { "on" } else { "off" }));
-			merge(&mut record, state.to_json());
+		Ok(outcome) => success_record(device, |record| {
+			add_state(record, *outcome.state());
 			record.insert("sweep_completed".into(), json!(outcome.completed()));
 			if let Some(reason) = outcome.cancellation() {
 				record.insert("sweep_cancelled".into(), json!(reason.label()));
@@ -606,8 +579,7 @@ fn sweep_record(device: &Device, settings: &Settings, config: SweepConfig) -> Va
 			record.insert("sweep_count".into(), json!(config.count));
 			record.insert("sweep_duration_ms".into(), json!(config.duration_ms));
 			record.insert("sweep_brightness".into(), json!(config.brightness));
-			Value::Object(record)
-		}
+		}),
 		Err(error) => error_record(device, &error),
 	}
 }
