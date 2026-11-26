@@ -746,6 +746,25 @@ impl Session {
 			.is_some_and(|address| known.host.eq_ignore_ascii_case(&address.to_string()))
 	}
 
+	/// Prefer a device's display name, but keep the mDNS instance when another
+	/// registry entry already uses that name so a second light cannot overwrite it.
+	fn discovered_name(
+		devices: &[LightDevice],
+		instance: &str,
+		display_name: Option<&str>,
+	) -> String {
+		display_name
+			.map(str::trim)
+			.filter(|name| !name.is_empty())
+			.filter(|name| {
+				!devices
+					.iter()
+					.any(|known| known.name.eq_ignore_ascii_case(name))
+			})
+			.unwrap_or(instance)
+			.to_string()
+	}
+
 	pub fn discovery_rows(&self) -> Vec<DiscoveryRow> {
 		let mut rows = Vec::new();
 		for known in &self.devices {
@@ -776,7 +795,7 @@ impl Session {
 				.is_some_and(|address| !known.host.eq_ignore_ascii_case(&address.to_string()));
 			rows.push(DiscoveryRow {
 				id: format!("known-{}", known.name),
-				name: known.name.clone(),
+				name: known.title().to_string(),
 				detail,
 				state: if discovered.is_some() {
 					DiscoveryState::Added
@@ -835,8 +854,24 @@ impl Session {
 			return Ok(false);
 		}
 		let address = Self::address_for(discovered)?;
+		let display_name = discovered.address.and_then(|address| {
+			let target = DeviceTarget {
+				name: discovered.instance.clone(),
+				host: address.to_string(),
+				port: discovered.port,
+			};
+			client_for_target(&target, self.options)
+				.info()
+				.ok()
+				.and_then(|info| {
+					let name = info.display_name.trim();
+					(!name.is_empty()).then(|| name.to_string())
+				})
+		});
+		let name =
+			Self::discovered_name(&self.devices, &discovered.instance, display_name.as_deref());
 		let changed = self.config.add(Device {
-			name: discovered.instance.clone(),
+			name,
 			host: address,
 			port: discovered.port,
 		})?;
@@ -1100,6 +1135,23 @@ mod tests {
 	}
 
 	#[test]
+	fn discovered_display_name_falls_back_when_taken() {
+		let devices = vec![device("Key Light", "192.0.2.10", 9123)];
+		assert_eq!(
+			Session::discovered_name(&devices, "Key Light ABC", Some("Key Light")),
+			"Key Light ABC"
+		);
+		assert_eq!(
+			Session::discovered_name(&devices, "Key Light ABC", Some("Left")),
+			"Left"
+		);
+		assert_eq!(
+			Session::discovered_name(&devices, "Key Light ABC", Some("  ")),
+			"Key Light ABC"
+		);
+	}
+
+	#[test]
 	fn discovery_rows_show_added_missing_update_and_new() {
 		let mut session = Session {
 			config: Config::new(PathBuf::from("devices.json")),
@@ -1156,6 +1208,7 @@ mod tests {
 			firmware_version: "1.0.3".to_string(),
 			firmware_build_number: 222,
 			hardware_board_type: 53,
+			serial_number: Default::default(),
 			wifi: Some(WifiInfo {
 				ssid: "test".to_string(),
 				frequency_mhz: 2400,
@@ -1259,7 +1312,7 @@ mod tests {
 	}
 
 	#[test]
-	fn subtitle_prefers_a_different_hardware_name() {
+	fn title_prefers_the_device_display_name() {
 		let mut device = device("Desk", "192.0.2.10", 9123);
 		device.info = Some(AccessoryInfo {
 			product_name: "Elgato Key Light Air".to_string(),
@@ -1267,12 +1320,17 @@ mod tests {
 			firmware_version: "1.0.3".to_string(),
 			firmware_build_number: 222,
 			hardware_board_type: 200,
+			serial_number: Default::default(),
 			wifi: Some(WifiInfo {
 				ssid: "test".to_string(),
 				frequency_mhz: 2400,
 				rssi: -40,
 			}),
 		});
-		assert_eq!(device.subtitle(), "Right · Elgato Key Light Air");
+		assert_eq!(device.title(), "Right");
+		assert_eq!(device.subtitle(), "Elgato Key Light Air");
+
+		device.info.as_mut().unwrap().display_name.clear();
+		assert_eq!(device.title(), "Desk");
 	}
 }

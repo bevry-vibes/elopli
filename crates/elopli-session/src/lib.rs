@@ -93,27 +93,23 @@ impl LightDevice {
 		self.state.map_or(50, |state| state.warmth())
 	}
 
-	/// The card subtitle: the light's hardware name when it differs from the
-	/// registry name, then the product name, then the host.
-	pub fn subtitle(&self) -> String {
-		let display = self
-			.info
+	/// The card title: the light's custom display name when set, otherwise
+	/// the local registry name.
+	pub fn title(&self) -> &str {
+		self.info
 			.as_ref()
 			.map(|info| info.display_name.trim())
-			.filter(|name| !name.is_empty());
+			.filter(|name| !name.is_empty())
+			.unwrap_or(&self.name)
+	}
+
+	/// The card subtitle: the product name, then the host.
+	pub fn subtitle(&self) -> String {
 		let product = self
 			.info
 			.as_ref()
 			.map(|info| info.product_name.trim())
 			.filter(|name| !name.is_empty());
-		if let Some(display) = display
-			&& !display.eq_ignore_ascii_case(&self.name)
-		{
-			return match product {
-				Some(product) => format!("{display} · {product}"),
-				None => display.to_string(),
-			};
-		}
 		product.map_or_else(|| self.host.clone(), str::to_string)
 	}
 }
