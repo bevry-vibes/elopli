@@ -29,6 +29,8 @@ MAC addresses are discarded by the client. Serial numbers are retained in memory
 
 ## Screenshots
 
+### macOS
+
 The menu panel shows a card for each light.
 The magenta borders show linked lights; here Left and Right are linked.
 
@@ -46,6 +48,8 @@ Each light's menu opens the pulse and sweep editors.
   <img src="docs/screenshots/sweep.png" width="460" alt="Sweep editor with a count of 1, a 1.0s duration, and brightness set to N/A">
 </p>
 
+### Windows
+
 The Windows app is a native tray panel with the same card layout, sheets, and link colours.
 
 <p>
@@ -60,10 +64,20 @@ The Windows app is a native tray panel with the same card layout, sheets, and li
   <img src="docs/screenshots/windows-pulse.png" width="460" alt="Windows pulse sheet with a count of 3 and a 1.0s duration">
 </p>
 
+### Linux
+
 The Linux app is a native GTK4 tray panel with the same cards, linked borders, and sheets.
 
 <p>
   <img src="docs/screenshots/linux-panel.png" width="460" alt="Linux GTK4 panel with three lights, Back and Right linked">
+</p>
+
+<p>
+  <img src="docs/screenshots/linux-rename.png" width="400" alt="Linux rename sheet with the light's current name">
+</p>
+
+<p>
+  <img src="docs/screenshots/linux-power-on.png" width="400" alt="Linux power-on behaviour sheet with restore options">
 </p>
 
 <p>
@@ -74,7 +88,7 @@ The Linux app is a native GTK4 tray panel with the same cards, linked borders, a
   <img src="docs/screenshots/linux-sweep.png" width="400" alt="Linux sweep sheet with a count of 1, 1.0s duration, and brightness set to N/A">
 </p>
 
-See [docs/linux.md](docs/linux.md#screenshots) for the rename, power-on, and discovery sheets.
+See [docs/linux.md](docs/linux.md#screenshots) for the discovery sheet.
 
 ## Features
 
