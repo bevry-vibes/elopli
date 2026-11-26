@@ -144,3 +144,5 @@ Answer: no. Plain GTK4 is sufficient for this delivery.
 > clicking the on all and off all buttons do not animate the light toggles, is animating them possible?
 
 > the hover and press state of the light menu button isn't the same as the prior hover and press state it was before, when the button looked like the menubar settings button
+
+> neither change seems to have done anything...
