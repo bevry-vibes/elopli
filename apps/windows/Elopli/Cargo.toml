@@ -43,7 +43,7 @@ windows = { version = "0.62", features = [
 	"Win32_UI_WindowsAndMessaging",
 ] }
 winreg = "0.56"
-windows-numerics = "0.3"
+windows-numerics = "0.100"
 
 [build-dependencies]
 embed-resource = "3"
