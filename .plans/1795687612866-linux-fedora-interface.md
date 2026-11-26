@@ -182,3 +182,6 @@ The first Soar install exposed the difference between a portable tarball and a d
 
 - The flat menu rule reserves a 1 px transparent border, so the hover/active/focus border cannot widen the button and shift the toggle. The power and WiFi margins are 5 px and 11 px so the toggle stays on the slider column with 30 px of visible space on each side.
 - The header settings menu uses the same flat-at-rest rule; its hover, press, open, and focus states remain the theme's.
+
+- The flat-state selector no longer excludes focus, so a menu returns to its rest look when the popover closes or focus moves away, instead of keeping a theme focus/click box.
+- The power margin is 6 px and the WiFi margin 6 px: the toggle moves 1 px left onto the slider column, and the WiFi button moves right so the hover-border gaps on both sides are equal. The visible glyph gaps differ because the menu dots are narrower, but the special-state borders match.

@@ -152,3 +152,11 @@ Answer: no. Plain GTK4 is sufficient for this delivery.
 > its hover/spacial states incorrectly bumps the toggle left a px
 >
 > do the same style for the menubar menu button
+
+> problems
+>
+> their click state does not deactive even when clicked away / their menu deactivated
+>
+> the on/off toggles now need to be moved 1px left
+>
+> the wifi icon is too far left, remember their whitespace gap in their special states is meant to be the same
