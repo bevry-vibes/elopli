@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use elopli_core::parse_duration;
 use elopli_session::{LightDevice, LinkKind, LinkTarget, REFRESH_INTERVAL, SessionSnapshot};
+use gtk::glib::value::ToValue;
 use gtk::prelude::*;
 use gtk::{gdk, gio, glib, pango};
 
@@ -32,6 +33,7 @@ pub fn activate(application: &gtk::Application, start_hidden: bool) {
 
 	gtk::Window::set_default_icon_name("com.bevry.elopli");
 	theme::install();
+	theme::install_icons();
 	let (ui_tx, ui_rx) = mpsc::channel();
 	match App::new(application, ui_tx) {
 		Ok(app) => {
@@ -104,17 +106,17 @@ impl App {
 			.build();
 		window.add_css_class("elopli-panel");
 		window.set_hide_on_close(true);
+		window.set_resizable(false);
 		window.set_icon_name(Some("com.bevry.elopli"));
 
 		let header = gtk::HeaderBar::new();
 		header.set_show_title_buttons(true);
-		header.set_decoration_layout(Some(":minimize,close"));
+		header.set_decoration_layout(Some(":close"));
 		let title = gtk::Label::new(Some("Elopli"));
 		title.add_css_class("elopli-title");
 		title.set_xalign(0.0);
+		title.set_margin_start(4);
 		header.pack_start(&title);
-		// Clear HeaderBar's default center title; the packed title is the only one.
-		header.set_title_widget(Some(&gtk::Box::new(gtk::Orientation::Horizontal, 0)));
 		window.set_titlebar(Some(&header));
 
 		let outer = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -123,8 +125,8 @@ impl App {
 		error_label.set_wrap(true);
 		error_label.set_xalign(0.0);
 		error_label.set_margin_top(6);
-		error_label.set_margin_start(14);
-		error_label.set_margin_end(14);
+		error_label.set_margin_start(12);
+		error_label.set_margin_end(12);
 		error_label.set_visible(false);
 		outer.append(&error_label);
 
@@ -140,13 +142,13 @@ impl App {
 		scrolled.set_child(Some(&cards_box));
 		outer.append(&scrolled);
 
-		let footer = gtk::Label::new(Some("Ctrl-click to link · drag a card grip to reorder."));
+		let footer = gtk::Label::new(Some("Ctrl-click to link · drag a card to reorder."));
 		footer.add_css_class("elopli-hint");
 		footer.set_xalign(0.0);
 		footer.set_margin_top(4);
 		footer.set_margin_bottom(10);
-		footer.set_margin_start(14);
-		footer.set_margin_end(14);
+		footer.set_margin_start(12);
+		footer.set_margin_end(12);
 		outer.append(&footer);
 
 		window.set_child(Some(&outer));
@@ -250,13 +252,15 @@ impl App {
 		settings.set_size_request(30, 30);
 		settings.set_direction(gtk::ArrowType::None);
 
-		// pack_end inserts each child at the start of the end group, so this
-		// order renders as: Refresh, Discover, All On, All Off, Settings.
-		self.header.pack_end(&settings);
-		self.header.pack_end(&all_off);
-		self.header.pack_end(&all_on);
-		self.header.pack_end(&discover);
-		self.header.pack_end(&refresh);
+		// Title on the left, actions centered, window controls on the right.
+		let actions = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+		actions.set_halign(gtk::Align::Center);
+		actions.append(&refresh);
+		actions.append(&discover);
+		actions.append(&all_on);
+		actions.append(&all_off);
+		actions.append(&settings);
+		self.header.set_title_widget(Some(&actions));
 	}
 
 	fn connect_window(self: &Rc<Self>) {
@@ -462,6 +466,7 @@ impl App {
 
 	pub(crate) fn show(&self) {
 		self.window.present();
+		gtk::prelude::GtkWindowExt::set_focus(&self.window, None::<&gtk::Widget>);
 		self.worker.send(Command::Refresh);
 		self.ctrl.set(false);
 	}
@@ -546,7 +551,7 @@ impl App {
 		self.footer.set_text(if snapshot.devices.is_empty() {
 			"Add devices to devices.json, or use Discover Lights."
 		} else {
-			"Ctrl-click to link · drag a card grip to reorder."
+			"Ctrl-click to link · drag a card to reorder."
 		});
 		*self.snapshot.borrow_mut() = snapshot;
 		self.update_tray();
@@ -557,7 +562,7 @@ impl App {
 		let height = if count == 0 {
 			300
 		} else {
-			(110 + count as i32 * 140).clamp(240, PANEL_HEIGHT)
+			(130 + count as i32 * 165).clamp(260, PANEL_HEIGHT)
 		};
 		self.window.set_default_size(PANEL_WIDTH, height);
 	}
@@ -838,30 +843,33 @@ impl Card {
 		let name = device.name.clone();
 		let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
 		root.add_css_class("elopli-card");
+		let pressed_on_control = Rc::new(Cell::new(false));
 		{
 			let weak = Rc::downgrade(app);
 			let device_name = name.clone();
 			let root_weak = root.downgrade();
+			let pressed_on_control = Rc::clone(&pressed_on_control);
 			let click = gtk::GestureClick::new();
 			click.set_button(1);
 			click.connect_pressed(move |gesture, _, x, y| {
-				if !gesture
-					.current_event_state()
-					.contains(gdk::ModifierType::CONTROL_MASK)
-				{
-					return;
-				}
 				let Some(root) = root_weak.upgrade() else {
 					return;
 				};
-				if let Some(picked) = root.pick(x, y, gtk::PickFlags::DEFAULT)
-					&& inside_linkable(&picked)
-				{
-					return;
-				}
-				if let Some(app) = weak.upgrade() {
-					app.toggle_link(&device_name, LinkKind::Card);
-					gesture.set_state(gtk::EventSequenceState::Claimed);
+				let control = root
+					.pick(x, y, gtk::PickFlags::DEFAULT)
+					.is_some_and(|picked| inside_linkable(&picked));
+				pressed_on_control.set(control);
+				let ctrl = gesture
+					.current_event_state()
+					.contains(gdk::ModifierType::CONTROL_MASK);
+				if ctrl && !control {
+					if let Some(app) = weak.upgrade() {
+						app.toggle_link(&device_name, LinkKind::Card);
+						gesture.set_state(gtk::EventSequenceState::Claimed);
+					}
+				} else {
+					// Leave the sequence to the slider, switch, or drag source.
+					gesture.set_state(gtk::EventSequenceState::Denied);
 				}
 			});
 			root.add_controller(click);
@@ -878,10 +886,6 @@ impl Card {
 		let title_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
 		title_box.set_hexpand(true);
 		title_box.set_valign(gtk::Align::Center);
-		let grip = gtk::Image::from_icon_name("list-drag-handle-symbolic");
-		grip.set_pixel_size(12);
-		grip.set_valign(gtk::Align::Center);
-		grip.add_css_class("elopli-grip");
 		let title_text = gtk::Box::new(gtk::Orientation::Vertical, 0);
 		title_text.set_hexpand(true);
 		let title = gtk::Label::new(None);
@@ -894,33 +898,30 @@ impl Card {
 		subtitle.add_css_class("elopli-subtitle");
 		title_text.append(&title);
 		title_text.append(&subtitle);
-		title_box.append(&grip);
 		title_box.append(&title_text);
 		top.append(&title_box);
 
-		let source = gtk::DragSource::new();
-		source.set_actions(gdk::DragAction::MOVE);
 		{
+			let source = gtk::DragSource::new();
+			source.set_actions(gdk::DragAction::MOVE);
 			let drag_name = name.clone();
+			let pressed_on_control = Rc::clone(&pressed_on_control);
 			source.connect_prepare(move |_, _, _| {
-				Some(gdk::ContentProvider::for_bytes(
-					"application/x-elopli-device",
-					&glib::Bytes::from(drag_name.as_bytes()),
-				))
+				if pressed_on_control.get() {
+					return None;
+				}
+				Some(gdk::ContentProvider::for_value(&drag_name.to_value()))
 			});
+			root.add_controller(source);
 		}
-		title_box.add_controller(source);
 
-		let target = gtk::DropTarget::new(glib::Bytes::static_type(), gdk::DragAction::MOVE);
+		let target = gtk::DropTarget::new(String::static_type(), gdk::DragAction::MOVE);
 		{
 			let weak = Rc::downgrade(app);
 			let onto = name.clone();
 			let root = root.downgrade();
 			target.connect_drop(move |_, value, _, _| {
-				let Ok(bytes) = value.get::<glib::Bytes>() else {
-					return false;
-				};
-				let Ok(dragged) = String::from_utf8(bytes.as_ref().to_vec()) else {
+				let Ok(dragged) = value.get::<String>() else {
 					return false;
 				};
 				if let Some(root) = root.upgrade() {
@@ -1025,31 +1026,34 @@ impl Card {
 		top.append(&menu);
 		content.append(&top);
 
+		let rows = gtk::Box::new(gtk::Orientation::Vertical, 6);
+
 		let (brightness_wrap, brightness, brightness_label) = slider_row(
 			"display-brightness-symbolic",
 			SliderKind::Brightness,
 			device.display_brightness(),
 		);
-		content.append(&brightness_wrap);
+		rows.append(&brightness_wrap);
 
 		let (warmth_wrap, warmth, warmth_label) = slider_row(
-			"night-light-symbolic",
+			"com.bevry.elopli-flame-symbolic",
 			SliderKind::Warmth,
 			device.display_warmth(),
 		);
-		content.append(&warmth_wrap);
+		rows.append(&warmth_wrap);
 
 		let temperature = gtk::Label::new(None);
 		temperature.add_css_class("elopli-temp");
 		temperature.set_xalign(0.0);
-		content.append(&temperature);
+		rows.append(&temperature);
 
 		let error = gtk::Label::new(None);
 		error.add_css_class("elopli-error");
 		error.set_xalign(0.0);
 		error.set_wrap(true);
 		error.set_visible(false);
-		content.append(&error);
+		rows.append(&error);
+		content.append(&rows);
 
 		{
 			let weak = Rc::downgrade(app);
@@ -1078,7 +1082,7 @@ impl Card {
 			let weak = Rc::downgrade(app);
 			let device_name = name.clone();
 			let brightness = brightness.clone();
-			let label = brightness_label.clone();
+			let label = warmth_label.clone();
 			warmth.set_on_change(move |value| {
 				brightness.set_warmth(value);
 				label.set_text(&format!("{value}%"));
@@ -1191,10 +1195,19 @@ impl Card {
 			self.temperature.set_visible(false);
 		}
 
+		for class in [
+			"elopli-wifi-good",
+			"elopli-wifi-fair",
+			"elopli-wifi-weak",
+			"elopli-wifi-offline",
+		] {
+			self.wifi.remove_css_class(class);
+		}
 		if let Some(error) = &device.error {
 			self.error.set_text(error);
 			self.error.set_visible(true);
 			self.wifi.set_icon_name("network-wireless-offline-symbolic");
+			self.wifi.add_css_class("elopli-wifi-offline");
 			self.wifi.set_tooltip_text(Some(&format!(
 				"{} · {}\n{error}\nPower-cycle the light, wait for it to reconnect, then refresh.",
 				device.title(),
@@ -1203,6 +1216,17 @@ impl Card {
 		} else {
 			self.error.set_visible(false);
 			self.wifi.set_icon_name("network-wireless-symbolic");
+			match device
+				.info
+				.as_ref()
+				.and_then(|info| info.wifi.as_ref())
+				.map(|wifi| wifi.quality())
+			{
+				Some("excellent" | "good") => self.wifi.add_css_class("elopli-wifi-good"),
+				Some("fair") => self.wifi.add_css_class("elopli-wifi-fair"),
+				Some(_) => self.wifi.add_css_class("elopli-wifi-weak"),
+				None => {}
+			}
 			let details = match &device.info {
 				Some(info) => {
 					let wifi = info.wifi.as_ref().map_or_else(
@@ -1297,7 +1321,6 @@ fn slider_row(icon: &str, slider_kind: SliderKind, value: u8) -> (gtk::Box, Slid
 	let image = gtk::Image::from_icon_name(icon);
 	image.set_pixel_size(16);
 	image.set_valign(gtk::Align::Center);
-	image.set_margin_start(3);
 	row.append(&image);
 
 	let value_label = gtk::Label::new(Some(&format!("{value}%")));

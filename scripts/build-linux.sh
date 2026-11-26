@@ -107,7 +107,13 @@ here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 exec "$here/usr/bin/elopli-app" "$@"
 APPRUN
 	chmod 755 "$appdir/AppRun"
-	ARCH="$arch" "$appimage_tool" "$appdir" "$dist/$package.AppImage"
+	# The Rust appimagetool takes -o/-n; the classic tool takes APPDIR OUTPUT.
+	if "$appimage_tool" --help 2>&1 | grep -q -- '--output'; then
+		"$appimage_tool" --appimage-arch "$arch" --arch "$arch" \
+			--output "$dist" --name "$package.AppImage" "$appdir"
+	else
+		ARCH="$arch" "$appimage_tool" "$appdir" "$dist/$package.AppImage"
+	fi
 else
 	echo "appimagetool was not found; wrote the portable tarball only" >&2
 fi

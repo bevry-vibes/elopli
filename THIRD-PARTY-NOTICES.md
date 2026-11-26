@@ -248,7 +248,7 @@ The allow list and source policy are enforced by cargo deny check with [deny.tom
 
 ## Artwork
 
-The Windows app embeds 20 px icon paths from [Microsoft Fluent UI System Icons](https://github.com/microsoft/fluentui-system-icons).
+The Windows and Linux apps embed 20 px icon paths from [Microsoft Fluent UI System Icons](https://github.com/microsoft/fluentui-system-icons).
 
 MIT License
 

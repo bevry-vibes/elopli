@@ -50,7 +50,27 @@ Build a portable tarball, checksums, and, when `appimagetool` is on `PATH` or `A
 ./scripts/build-linux.sh
 ```
 
-The script writes `dist/Elopli-<version>-linux-<arch>/`, a `.tar.gz`, and `SHA256SUMS`.
+The script writes `dist/Elopli-<version>-linux-<arch>/`, a `.tar.gz`, a `.AppImage` when `appimagetool` is available, and `SHA256SUMS`.
+
+## Install with Soar
+
+Soar installs a local AppImage directly:
+
+```sh
+soar install --name elopli-app --version 0.1.0 ./dist/Elopli-0.1.0-linux-x86_64.AppImage
+```
+
+Use `elopli-app` as the package name.
+The AppImage also carries the `elopli` CLI, and installing the package as `elopli` would shadow the CLI in `PATH`.
+Soar copies the AppImage into its package directory, links `elopli-app`, and writes the desktop entry and icon.
+
+If the app launcher keeps a blank icon, refresh the user icon cache:
+
+```sh
+cp -n /usr/share/icons/hicolor/index.theme ~/.local/share/icons/hicolor/index.theme
+gtk-update-icon-cache -f -t ~/.local/share/icons/hicolor
+update-desktop-database ~/.local/share/applications
+```
 
 ## Run
 
@@ -71,7 +91,10 @@ The panel has one card per light:
 Hold Ctrl and click a card, switch, or slider to link lights.
 Pending selections use yellow; committed links use magenta.
 Release Ctrl to apply the links.
-Drag a card by its grip to swap it with another card.
+Drag anywhere on a card to swap it with another card.
+
+The window has one close button.
+Closing it hides the panel to the tray; use **Quit Elopli** in the tray menu to exit.
 
 Pulse and Sweep open a sheet with a count, a human duration (`1.0s`, `500ms`, `1.5`, `10m`, `1h`), and the animation controls.
 Refresh polling pauses for the lights that are animating.

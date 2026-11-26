@@ -7,8 +7,8 @@ use gtk::{cairo, gdk};
 
 use crate::theme;
 
-const HEIGHT: i32 = 30;
-const INSET: f64 = 11.0;
+const HEIGHT: i32 = 40;
+const INSET: f64 = 21.0;
 
 type ChangeCallback = Rc<dyn Fn(u8)>;
 type LinkCallback = Rc<dyn Fn()>;
@@ -350,24 +350,27 @@ fn draw_tapered_track(
 	color: gdk::RGBA,
 	border: gdk::RGBA,
 ) {
+	let left_radius = 1.5;
+	let right_radius = 6.0;
+	let left_center = x + left_radius;
+	let right_center = x + (width - right_radius).max(left_center);
+
+	context.new_path();
+	context.move_to(left_center, center_y - left_radius);
+	context.line_to(right_center, center_y - right_radius);
+	context.arc(right_center, center_y, right_radius, -PI / 2.0, PI / 2.0);
+	context.line_to(left_center, center_y + left_radius);
+	context.arc(left_center, center_y, left_radius, PI / 2.0, PI * 1.5);
+	context.close_path();
+
 	context.set_source_rgba(
 		f64::from(border.red()),
 		f64::from(border.green()),
 		f64::from(border.blue()),
 		0.55,
 	);
-	let steps = width.max(1.0) as u32;
-	for step in 0..steps {
-		let t = f64::from(step) / f64::from(steps.max(1));
-		let thickness = 4.0 + 8.0 * t;
-		context.rectangle(
-			x + f64::from(step),
-			center_y - thickness / 2.0 - 1.0,
-			1.4,
-			thickness + 2.0,
-		);
-	}
-	let _ = context.fill();
+	context.set_line_width(1.0);
+	let _ = context.stroke_preserve();
 
 	context.set_source_rgba(
 		f64::from(color.red()),
@@ -375,16 +378,6 @@ fn draw_tapered_track(
 		f64::from(color.blue()),
 		f64::from(color.alpha()),
 	);
-	for step in 0..steps {
-		let t = f64::from(step) / f64::from(steps.max(1));
-		let thickness = 3.0 + 9.0 * t;
-		context.rectangle(
-			x + f64::from(step),
-			center_y - thickness / 2.0,
-			1.4,
-			thickness,
-		);
-	}
 	let _ = context.fill();
 }
 
@@ -402,7 +395,7 @@ fn draw_warmth_gradient(context: &cairo::Context, x: f64, center_y: f64, width: 
 }
 
 fn draw_glow(context: &cairo::Context, x: f64, y: f64, fraction: f64, color: gdk::RGBA) {
-	let max_radius = 10.0 + fraction * 14.0;
+	let max_radius = 10.0 + fraction * 8.0;
 	for (index, radius) in [
 		max_radius,
 		max_radius - 3.0,

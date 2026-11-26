@@ -30,7 +30,7 @@ foreach ($package in $packages) {
 $lines.Add("")
 $lines.Add("## Artwork")
 $lines.Add("")
-$lines.Add("The Windows app embeds 20 px icon paths from [Microsoft Fluent UI System Icons](https://github.com/microsoft/fluentui-system-icons).")
+$lines.Add("The Windows and Linux apps embed 20 px icon paths from [Microsoft Fluent UI System Icons](https://github.com/microsoft/fluentui-system-icons).")
 $lines.Add("")
 $lines.Add("MIT License")
 $lines.Add("")

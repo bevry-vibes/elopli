@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use gtk::gdk;
 use gtk::prelude::*;
 
@@ -12,7 +14,20 @@ window.elopli-panel headerbar {
     background-color: transparent;
     background-image: none;
     box-shadow: none;
-    border-bottom: 1px solid alpha(@theme_fg_color, 0.08);
+    border: none;
+}
+
+/* Match the libadwaita switch GNOME Settings uses. Plain GTK's Adwaita
+   switch uses a dark knob in the dark theme. */
+switch slider {
+    background-color: #ffffff;
+    background-image: none;
+    border: 1px solid rgba(0, 0, 0, 0.18);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+
+switch:checked slider {
+    background-color: #ffffff;
 }
 
 .elopli-title {
@@ -45,6 +60,19 @@ menubutton.elopli-menu > button:focus {
     font-size: 12px;
 }
 
+.elopli-wifi-good {
+    color: #33d17a;
+}
+
+.elopli-wifi-fair {
+    color: #f5c211;
+}
+
+.elopli-wifi-weak,
+.elopli-wifi-offline {
+    color: #ff5c5c;
+}
+
 .elopli-card {
     background-color: alpha(@theme_fg_color, 0.045);
     border: 1px solid alpha(@theme_fg_color, 0.10);
@@ -61,10 +89,6 @@ menubutton.elopli-menu > button:focus {
 
 .elopli-card-drop {
     box-shadow: inset 0 0 0 2px @theme_selected_bg_color;
-}
-
-.elopli-grip {
-    opacity: 0.35;
 }
 
 .elopli-field {
@@ -110,6 +134,46 @@ menubutton.elopli-menu > button:focus {
     font-weight: 600;
 }
 "#;
+
+/// Icon theme roots that carry the Elopli hicolor set. The first entry is used
+/// by the StatusNotifierItem host; all entries are added to GTK's icon theme.
+pub fn icon_theme_roots() -> Vec<PathBuf> {
+	let mut roots = Vec::new();
+	if let Some(path) = std::env::var_os("ELOPLI_ICON_THEME") {
+		let path = PathBuf::from(path);
+		if path.is_dir() {
+			roots.push(path);
+		}
+	}
+	if let Ok(executable) = std::env::current_exe()
+		&& let Some(directory) = executable.parent()
+	{
+		for candidate in [
+			directory.join("share/icons"),
+			directory.join("../share/icons"),
+		] {
+			if candidate.is_dir() && !roots.contains(&candidate) {
+				roots.push(candidate);
+			}
+		}
+	}
+	let development = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/icons"));
+	if development.is_dir() && !roots.contains(&development) {
+		roots.push(development);
+	}
+	roots
+}
+
+/// Make the applications and status icons visible to GTK's icon lookup.
+pub fn install_icons() {
+	let Some(display) = gdk::Display::default() else {
+		return;
+	};
+	let theme = gtk::IconTheme::for_display(&display);
+	for root in icon_theme_roots() {
+		theme.add_search_path(root);
+	}
+}
 
 /// Install the application stylesheet on the default display.
 pub fn install() {

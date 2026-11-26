@@ -51,29 +51,10 @@ impl ksni::Tray for Item {
 		// A portable tarball, an AppImage, and a development checkout each keep
 		// the hicolor set in a different place. An installed package uses the
 		// system icon path, so an empty value is the correct fallback.
-		if let Some(path) = std::env::var_os("ELOPLI_ICON_THEME")
-			&& std::path::Path::new(&path).is_dir()
-		{
-			return path.to_string_lossy().into_owned();
-		}
-		if let Ok(executable) = std::env::current_exe()
-			&& let Some(directory) = executable.parent()
-		{
-			for candidate in [
-				directory.join("share/icons"),
-				directory.join("../share/icons"),
-			] {
-				if candidate.is_dir() {
-					return candidate.to_string_lossy().into_owned();
-				}
-			}
-		}
-		let development = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/icons");
-		if std::path::Path::new(development).is_dir() {
-			development.to_string()
-		} else {
-			String::new()
-		}
+		crate::theme::icon_theme_roots()
+			.first()
+			.map(|path| path.to_string_lossy().into_owned())
+			.unwrap_or_default()
 	}
 
 	fn tool_tip(&self) -> ToolTip {

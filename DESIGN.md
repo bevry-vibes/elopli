@@ -415,6 +415,12 @@ The group actions run the same animation on every member of the group.
 - Launch at Login writes `~/.config/autostart/com.bevry.elopli.desktop`.
 - The app uses the native transport only and never falls back to `curl`.
 - `ELOPLI_SCREENSHOT` renders the panel to a PNG through the GTK render node, so visual checks work on Wayland without a screenshot portal.
+- The window has one close button. Close hides the panel to the tray; Quit is in the tray menu. There is no titlebar/content divider.
+- Card reordering starts from any card background. Presses on a slider, switch, button, or menu never start a card drag. The drag payload is a string.
+- WiFi icons follow RSSI quality: green for excellent/good, amber for fair, red for weak or offline.
+- The warmth icon is the Fluent filled fire path, the same MIT-licensed icon set the Windows app uses.
+- The brightness slider has rounded caps and its glow fits inside the widget. The switch uses a white knob and a subtle border to match libadwaita without adding libadwaita as a dependency.
+- Soar installs the AppImage as `elopli-app`; installing it as `elopli` would shadow the CLI.
 
 ## 8. Data and privacy
 
@@ -436,6 +442,7 @@ The group actions run the same animation on every member of the group.
 - Package Windows with `./scripts/build-windows.ps1`; it writes the portable ZIP, `SHA256SUMS`, and a Scoop manifest.
 - Build the Linux app with `cargo build -p elopli-app-linux --features linux --release`.
 - Package Linux with `./scripts/build-linux.sh`; it writes the portable tarball, `SHA256SUMS`, and an AppImage when `appimagetool` is available.
+- Install the AppImage locally with `soar install --name elopli-app --version <version> <AppImage>`; the `elopli-app` name keeps the CLI name free.
 - The Linux app needs `gtk4-devel` or `libgtk-4-dev`; GNOME needs the AppIndicator extension.
 - Sign Windows releases with Authenticode when a certificate is available.
 - The Rust core and session layer stay free of UI and platform code.
@@ -474,10 +481,11 @@ The group actions run the same animation on every member of the group.
 | D25 | The light's display name is the authoritative name; the registry key mirrors it | Per-interface local nicknames made the same light appear under different names. The device name is the only name that follows the hardware. | The API stops exposing `displayName`, or users need silent per-machine aliases. |
 | D26 | Linux panel is a regular GTK4 window opened from the tray menu | Wayland forbids client-side placement and GNOME has no layer-shell, so a tray-anchored popover is not portable. | A supported Wayland protocol or a GNOME extension exposes tray anchoring. |
 | D27 | Linux single instance uses the `GtkApplication` D-Bus name | GApplication already forwards activation without a socket or lock file. | The app must run without a session bus. |
+| D28 | Install the Linux AppImage through Soar as `elopli-app` | The AppImage carries both the GUI and the CLI; a package named `elopli` makes the GUI shadow the CLI in `PATH`. | Soar supports multiple binaries from one package, or the CLI is shipped separately. |
 
 ## 11. Open items
 
-- Linux interaction smoke test, packaging installation, Ubuntu 24.04 validation, and the AppImage release recipe; Flatpak is shelved.
+- Linux interaction smoke test, packaging installation, Ubuntu 24.04 validation, the AppImage release recipe, and publication to a Soar repository; Flatpak is shelved.
 - Migrate the macOS session to the shared naming rule; its UI already shows the remote display name.
 - Windows Authenticode signing and a public Scoop bucket.
 - Windows ARM64.

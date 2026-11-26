@@ -242,8 +242,15 @@ The app adds a lightbulb to the StatusNotifierItem tray.
 On GNOME, a single left click opens the tray menu, a double or middle click opens the panel, and a right click opens the menu.
 Open **Show Elopli** from the tray menu to show the panel.
 Other hosts, such as KDE, open the panel on a left click.
+The panel header has a single close button; it hides the panel back to the tray. Use **Quit Elopli** in the tray menu to exit.
+
+Install the AppImage through Soar under the `elopli-app` name so it does not shadow the CLI:
+
+```sh
+soar install --name elopli-app --version 0.1.0 ./dist/Elopli-0.1.0-linux-x86_64.AppImage
+```
 Hold Ctrl and click a card, toggle, or slider to link lights; release Ctrl to apply.
-Drag a card by its grip to swap positions.
+Drag anywhere on a card to swap its position with another card.
 Press Esc to close a sheet or hide the panel.
 
 See [docs/linux.md](docs/linux.md) for the Fedora and GNOME requirements, Wayland limitations, firewall, autostart, and smoke-test notes.
