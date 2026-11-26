@@ -96,6 +96,37 @@ jobs:
             dist/elopli.json
           if-no-files-found: error
 
+  linux-app:
+    name: linux-app
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.100.0"
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Install GTK4 and packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev desktop-file-utils appstream
+      - name: Clippy
+        run: cargo clippy -p elopli-app-linux --features linux --all-targets --locked -- -D warnings
+      - name: Test
+        run: cargo test -p elopli-app-linux --features linux --locked
+      - name: Smoke test
+        run: cargo run -p elopli-app-linux --features linux --locked -- --smoke-test
+      - name: Package
+        run: ./scripts/build-linux.sh
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-app
+          path: |
+            dist/Elopli-*-linux-x86_64.tar.gz
+            dist/Elopli-*-linux-x86_64/SHA256SUMS
+          if-no-files-found: error
+
   macos-app:
     name: macos-app
     runs-on: macos-latest
