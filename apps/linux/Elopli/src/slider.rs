@@ -8,7 +8,7 @@ use gtk::{cairo, gdk};
 use crate::theme;
 
 const HEIGHT: i32 = 40;
-pub(crate) const INSET: f64 = 21.0;
+const INSET: f64 = 21.0;
 
 type ChangeCallback = Rc<dyn Fn(u8)>;
 type LinkCallback = Rc<dyn Fn()>;
