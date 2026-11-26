@@ -11,14 +11,27 @@ use serde_json::{Value, json};
 use crate::error::{ElopliError, Result};
 use crate::model::{DEFAULT_PORT, Device};
 
+/// Expand a leading `~`, `~/`, or `~\` to the current user's home directory.
+///
+/// `~user` is deliberately not expanded: resolving another account's home is
+/// platform-specific and is not needed by the CLI or the apps.
 pub fn expand_tilde(path: impl AsRef<Path>) -> PathBuf {
 	let path = path.as_ref();
-	if let Ok(rest) = path.strip_prefix("~")
-		&& let Some(home) = dirs::home_dir()
-	{
-		return home.join(rest);
+	let Some(text) = path.to_str() else {
+		return path.to_path_buf();
+	};
+	if text != "~" && !text.starts_with("~/") && !text.starts_with("~\\") {
+		return path.to_path_buf();
 	}
-	path.to_path_buf()
+	let Some(home) = dirs::home_dir() else {
+		return path.to_path_buf();
+	};
+	let rest = text[1..].trim_start_matches(['/', '\\']);
+	if rest.is_empty() {
+		home
+	} else {
+		home.join(rest)
+	}
 }
 
 /// The application registry path. The CLI may prefer a local file, but GUI and
@@ -56,6 +69,52 @@ fn fingerprint(bytes: &[u8]) -> u64 {
 
 fn file_fingerprint(path: &Path) -> Option<u64> {
 	fs::read(path).ok().map(|bytes| fingerprint(&bytes))
+}
+
+/// A sibling temporary file that keeps the `.json` extension. Windows
+/// antivirus and indexers treat extensionless files differently, and a `.json`
+/// file can be renamed over the destination atomically.
+fn temporary_path(path: &Path) -> PathBuf {
+	let parent = path.parent().unwrap_or_else(|| Path::new("."));
+	let name = path
+		.file_name()
+		.and_then(|value| value.to_str())
+		.unwrap_or("devices.json");
+	parent.join(format!(
+		".{name}.tmp-{}-{}.json",
+		std::process::id(),
+		std::time::SystemTime::now()
+			.duration_since(std::time::UNIX_EPOCH)
+			.map(|duration| duration.as_nanos())
+			.unwrap_or_default()
+	))
+}
+
+/// Replace a file, retrying briefly for Windows sharing violations. An
+/// antivirus scanner, Explorer preview, or indexer can hold the destination
+/// open for a few milliseconds after a write.
+fn replace_file(from: &Path, to: &Path) -> Result<()> {
+	let mut delay = Duration::from_millis(10);
+	let mut last_error = None;
+	for attempt in 0..5 {
+		match fs::rename(from, to) {
+			Ok(()) => return Ok(()),
+			Err(error) => {
+				last_error = Some(error);
+				if attempt < 4 {
+					std::thread::sleep(delay);
+					delay *= 2;
+				}
+			}
+		}
+	}
+	Err(last_error
+		.map(ElopliError::Io)
+		.unwrap_or_else(|| ElopliError::Config(format!("cannot replace {}", to.display()))))
+}
+
+fn same_text(left: &str, right: &str) -> bool {
+	left.to_lowercase() == right.to_lowercase()
 }
 
 fn validate_device(device: &Device) -> Result<Device> {
@@ -204,7 +263,13 @@ impl Config {
 			.read(true)
 			.write(true)
 			.truncate(false)
-			.open(&lock_path)?;
+			.open(&lock_path)
+			.map_err(|error| {
+				ElopliError::Config(format!(
+					"cannot open registry lock {}: {error}",
+					lock_path.display()
+				))
+			})?;
 		let deadline = Instant::now() + Duration::from_secs(5);
 		loop {
 			match file.try_lock() {
@@ -215,7 +280,12 @@ impl Config {
 					}
 					std::thread::sleep(Duration::from_millis(10));
 				}
-				Err(std::fs::TryLockError::Error(error)) => return Err(error.into()),
+				Err(std::fs::TryLockError::Error(error)) => {
+					return Err(ElopliError::Config(format!(
+						"cannot lock registry {}: {error}",
+						lock_path.display()
+					)));
+				}
 			}
 		}
 		Ok(ConfigLock { file })
@@ -234,20 +304,7 @@ impl Config {
 		let contents = serde_json::to_string_pretty(&payload)
 			.map_err(|error| ElopliError::Config(error.to_string()))?;
 		let contents = format!("{contents}\n");
-		let parent = self.path.parent().unwrap_or_else(|| Path::new("."));
-		let name = self
-			.path
-			.file_name()
-			.and_then(|value| value.to_str())
-			.unwrap_or("devices.json");
-		let temporary = parent.join(format!(
-			".{name}.tmp-{}-{}",
-			std::process::id(),
-			std::time::SystemTime::now()
-				.duration_since(std::time::UNIX_EPOCH)
-				.map(|duration| duration.as_nanos())
-				.unwrap_or_default()
-		));
+		let temporary = temporary_path(&self.path);
 		let result = (|| -> Result<()> {
 			let mut file = OpenOptions::new()
 				.create_new(true)
@@ -256,7 +313,7 @@ impl Config {
 			file.write_all(contents.as_bytes())?;
 			file.sync_all()?;
 			drop(file);
-			fs::rename(&temporary, &self.path)?;
+			replace_file(&temporary, &self.path)?;
 			Ok(())
 		})();
 		if result.is_err() {
@@ -285,11 +342,11 @@ impl Config {
 		let existing_index = self
 			.devices
 			.iter()
-			.position(|existing| existing.name.eq_ignore_ascii_case(&device.name));
+			.position(|existing| same_text(&existing.name, &device.name));
 		if let Some(index) = existing_index {
 			if self.devices.iter().enumerate().any(|(other, existing)| {
 				other != index
-					&& existing.host.eq_ignore_ascii_case(&device.host)
+					&& same_text(&existing.host, &device.host)
 					&& existing.port == device.port
 			}) {
 				return Err(ElopliError::Config(format!(
@@ -297,7 +354,7 @@ impl Config {
 					device.host
 				)));
 			}
-			if self.devices[index].host.eq_ignore_ascii_case(&device.host)
+			if same_text(&self.devices[index].host, &device.host)
 				&& self.devices[index].port == device.port
 			{
 				return Ok(false);
@@ -306,9 +363,11 @@ impl Config {
 			self.devices[index].port = device.port;
 			return Ok(true);
 		}
-		if self.devices.iter().any(|existing| {
-			existing.host.eq_ignore_ascii_case(&device.host) && existing.port == device.port
-		}) {
+		if self
+			.devices
+			.iter()
+			.any(|existing| same_text(&existing.host, &device.host) && existing.port == device.port)
+		{
 			return Err(ElopliError::Config(format!(
 				"{} is already registered under another name",
 				device.host
@@ -328,7 +387,7 @@ impl Config {
 		for name in names {
 			if reordered
 				.iter()
-				.any(|device: &Device| device.name.eq_ignore_ascii_case(name))
+				.any(|device: &Device| same_text(&device.name, name))
 			{
 				return Err(ElopliError::Config(format!(
 					"reorder contains {name} more than once"
@@ -337,7 +396,7 @@ impl Config {
 			if let Some(index) = self
 				.devices
 				.iter()
-				.position(|device| device.name.eq_ignore_ascii_case(name))
+				.position(|device| same_text(&device.name, name))
 			{
 				reordered.push(self.devices.remove(index));
 			} else {
@@ -399,6 +458,15 @@ mod tests {
 	}
 
 	#[test]
+	fn names_compare_case_insensitively_for_unicode() {
+		let mut config = Config::new(temp_path("devices.json"));
+		assert!(config.add(Device::new("Café", "192.0.2.10")).unwrap());
+		assert!(!config.add(Device::new("café", "192.0.2.10")).unwrap());
+		assert!(config.add(Device::new("CAFÉ", "192.0.2.11")).unwrap());
+		assert_eq!(config.devices[0].host, "192.0.2.11");
+	}
+
+	#[test]
 	fn save_is_atomic_and_detects_external_changes() {
 		let path = temp_path("devices.json");
 		let mut config = Config::new(path.clone());
@@ -423,5 +491,50 @@ mod tests {
 		assert!(config.reorder(&["Right".into(), "Left".into()]).is_ok());
 		assert!(config.reorder(&["Right".into()]).is_err());
 		assert!(config.reorder(&["Right".into(), "Right".into()]).is_err());
+	}
+
+	#[test]
+	fn expands_home_prefixes_with_either_separator() {
+		let Some(home) = dirs::home_dir() else {
+			return;
+		};
+		assert_eq!(expand_tilde("~"), home);
+		assert_eq!(expand_tilde("~/devices.json"), home.join("devices.json"));
+		assert_eq!(expand_tilde("~\\devices.json"), home.join("devices.json"));
+		assert_eq!(expand_tilde("~"), home);
+	}
+
+	#[test]
+	fn leaves_similar_tilde_names_alone() {
+		assert_eq!(
+			expand_tilde("~user/devices.json"),
+			PathBuf::from("~user/devices.json")
+		);
+		assert_eq!(expand_tilde("devices.json"), PathBuf::from("devices.json"));
+		assert_eq!(expand_tilde("~backup"), PathBuf::from("~backup"));
+	}
+
+	#[test]
+	fn temporary_path_keeps_the_json_extension() {
+		let path = temp_path("devices.json");
+		let temporary = temporary_path(&path);
+		assert_eq!(
+			temporary.extension().and_then(|value| value.to_str()),
+			Some("json")
+		);
+		assert_eq!(temporary.parent(), path.parent());
+		assert_ne!(temporary, path);
+	}
+
+	#[test]
+	fn replace_file_overwrites_an_existing_destination() {
+		let directory = temp_path("unused").parent().unwrap().to_path_buf();
+		let source = directory.join("source.json");
+		let destination = directory.join("destination.json");
+		fs::write(&source, b"new").unwrap();
+		fs::write(&destination, b"old").unwrap();
+		replace_file(&source, &destination).unwrap();
+		assert_eq!(fs::read(&destination).unwrap(), b"new");
+		assert!(!source.exists());
 	}
 }

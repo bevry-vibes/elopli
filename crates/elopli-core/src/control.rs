@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use crate::config::expand_tilde;
 use crate::error::{ElopliError, Result};
 
 static NONCE: AtomicU64 = AtomicU64::new(0);
@@ -23,15 +24,23 @@ const LOCK_POLL: Duration = Duration::from_millis(10);
 
 pub(crate) fn state_directory() -> PathBuf {
 	if let Some(path) = std::env::var_os("ELOPLI_STATE_DIR") {
-		return PathBuf::from(path);
+		return expand_tilde(PathBuf::from(path));
 	}
-	if let Some(config) = dirs::config_dir() {
+	state_directory_from(dirs::config_dir(), dirs::home_dir(), std::env::temp_dir())
+}
+
+fn state_directory_from(
+	config: Option<PathBuf>,
+	home: Option<PathBuf>,
+	temporary: PathBuf,
+) -> PathBuf {
+	if let Some(config) = config {
 		return config.join("elopli").join("run");
 	}
-	if let Some(home) = dirs::home_dir() {
+	if let Some(home) = home {
 		return home.join(".config").join("elopli").join("run");
 	}
-	std::env::temp_dir().join("elopli-run")
+	temporary.join("elopli-run")
 }
 
 fn device_key(host: &str, port: u16) -> String {
@@ -139,7 +148,13 @@ impl Control {
 			.read(true)
 			.write(true)
 			.truncate(false)
-			.open(&self.lock_path)?;
+			.open(&self.lock_path)
+			.map_err(|error| {
+				ElopliError::Config(format!(
+					"cannot open control lock {}: {error}",
+					self.lock_path.display()
+				))
+			})?;
 		let deadline = Instant::now() + LOCK_TIMEOUT;
 		loop {
 			match file.try_lock() {
@@ -150,7 +165,12 @@ impl Control {
 					}
 					std::thread::sleep(LOCK_POLL);
 				}
-				Err(std::fs::TryLockError::Error(error)) => return Err(error.into()),
+				Err(std::fs::TryLockError::Error(error)) => {
+					return Err(ElopliError::Config(format!(
+						"cannot lock control file {}: {error}",
+						self.lock_path.display()
+					)));
+				}
 			}
 		}
 	}
@@ -196,5 +216,24 @@ mod tests {
 		control.cancel().unwrap();
 		assert_ne!(control.token().unwrap(), token);
 		drop(guard);
+	}
+
+	#[test]
+	fn state_directory_prefers_the_platform_config_directory() {
+		let config = PathBuf::from("config");
+		let home = PathBuf::from("home");
+		let temporary = PathBuf::from("temp");
+		assert_eq!(
+			state_directory_from(Some(config.clone()), Some(home.clone()), temporary.clone()),
+			config.join("elopli").join("run")
+		);
+		assert_eq!(
+			state_directory_from(None, Some(home.clone()), temporary.clone()),
+			home.join(".config").join("elopli").join("run")
+		);
+		assert_eq!(
+			state_directory_from(None, None, temporary.clone()),
+			temporary.join("elopli-run")
+		);
 	}
 }
