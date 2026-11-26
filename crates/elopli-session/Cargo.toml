@@ -1,0 +1,17 @@
+[package]
+name = "elopli-session"
+description = "Platform-free UI session layer for Elopli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+elopli-core = { path = "../elopli-core" }
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

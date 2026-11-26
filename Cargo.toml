@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
 	"crates/elopli-core",
+	"crates/elopli-session",
 	"crates/elopli",
 	"crates/elopli-ffi",
 	"crates/uniffi-bindgen",
