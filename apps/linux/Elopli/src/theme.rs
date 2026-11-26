@@ -41,7 +41,7 @@ switch:checked slider {
 
 /* The light menu is flat at rest; hover, press, open, and focus use the
    theme's normal button styling. */
-menubutton.elopli-menu > button:not(:hover):not(:active):not(:checked):not(:focus) {
+menubutton.elopli-menu > button:not(:hover):not(:active):not(:checked) {
     background: none;
     background-image: none;
     border: 1px solid transparent;
