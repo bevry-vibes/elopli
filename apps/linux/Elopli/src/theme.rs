@@ -36,7 +36,7 @@ switch:checked slider {
 }
 
 .elopli-card-title {
-    font-weight: 600;
+    font-weight: 800;
 }
 
 menubutton.elopli-menu > button {
@@ -44,6 +44,11 @@ menubutton.elopli-menu > button {
     background-image: none;
     border: none;
     box-shadow: none;
+}
+
+menubutton.elopli-menu > button:hover {
+    background-color: alpha(@theme_fg_color, 0.06);
+    box-shadow: inset 0 0 0 1px alpha(@theme_fg_color, 0.18);
 }
 
 menubutton.elopli-menu > button:focus {
@@ -131,7 +136,7 @@ menubutton.elopli-menu > button:focus {
 
 .elopli-missing {
     color: #ff5c5c;
-    font-weight: 600;
+    font-weight: 700;
 }
 "#;
 

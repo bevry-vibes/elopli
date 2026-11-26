@@ -895,6 +895,7 @@ impl Card {
 		title.set_xalign(0.0);
 		title.set_ellipsize(pango::EllipsizeMode::End);
 		title.set_width_chars(12);
+		title.add_css_class("elopli-card-title");
 		let subtitle = gtk::Label::new(None);
 		subtitle.set_xalign(0.0);
 		subtitle.set_ellipsize(pango::EllipsizeMode::End);
@@ -968,13 +969,13 @@ impl Card {
 			.build();
 		wifi.add_css_class("flat");
 		wifi.set_size_request(30, 30);
-		wifi.set_margin_end(10);
+		wifi.set_margin_end(11);
 		wifi.set_valign(gtk::Align::Center);
 		top.append(&wifi);
 
 		let power_wrap = gtk::Box::new(gtk::Orientation::Horizontal, 0);
 		power_wrap.add_css_class("elopli-field");
-		power_wrap.set_margin_end(5);
+		power_wrap.set_margin_end(7);
 		power_wrap.set_valign(gtk::Align::Center);
 		let power = gtk::Switch::new();
 		power.set_valign(gtk::Align::Center);
