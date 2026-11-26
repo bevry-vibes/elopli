@@ -15,8 +15,8 @@ pub mod slider;
 
 pub use link::{LinkGraph, LinkGroup, LinkKind, LinkTarget};
 pub use session::{
-	DeviceTarget, DiscoveryRow, DiscoveryState, Session, SessionSnapshot, cancel_target, run_pulse,
-	run_sweep,
+	DeviceTarget, DiscoveryRow, DiscoveryState, Fetched, RefreshPlan, Session, SessionSnapshot,
+	cancel_target, run_pulse, run_sweep,
 };
 pub use slider::{SLIDER_WRITE_INTERVAL, SliderKey, SliderQueue};
 

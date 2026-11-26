@@ -231,11 +231,13 @@ impl Session {
 		}
 	}
 
-	/// Refresh every idle light. Devices that are animating or have a pending
-	/// slider write are skipped so polling cannot fight a local action.
-	pub fn refresh(&mut self) {
+	/// Claim a refresh for the idle lights. The caller runs
+	/// [`RefreshPlan::execute`] on a worker thread and passes the result to
+	/// [`Session::finish_refresh`]. Devices that are animating or have a
+	/// pending slider write are skipped so polling cannot fight a local action.
+	pub fn begin_refresh(&mut self) -> Option<RefreshPlan> {
 		if self.refreshing {
-			return;
+			return None;
 		}
 		self.refreshing = true;
 		self.reload_config();
@@ -251,8 +253,15 @@ impl Session {
 			.iter()
 			.map(|device| (device.name.clone(), self.revision(&device.name)))
 			.collect::<HashMap<_, _>>();
-		let results = parallel_map(&targets, |device| fetch(device, self.options));
-		for fetched in results {
+		Some(RefreshPlan {
+			targets,
+			revisions,
+			options: self.options,
+		})
+	}
+
+	pub fn finish_refresh(&mut self, revisions: &HashMap<String, u64>, fetched: Vec<Fetched>) {
+		for fetched in fetched {
 			if self.pulsing.contains(&fetched.name) {
 				continue;
 			}
@@ -279,6 +288,15 @@ impl Session {
 			}
 		}
 		self.refreshing = false;
+	}
+
+	/// Blocking convenience for tests and synchronous callers.
+	pub fn refresh(&mut self) {
+		if let Some(plan) = self.begin_refresh() {
+			let revisions = plan.revisions().clone();
+			let fetched = plan.execute();
+			self.finish_refresh(&revisions, fetched);
+		}
 	}
 
 	fn revision(&self, name: &str) -> u64 {
@@ -683,20 +701,33 @@ impl Session {
 		Ok(true)
 	}
 
-	pub fn scan(&mut self, timeout: Duration) -> Result<Vec<DiscoveredDevice>> {
+	/// Start a scan. Returns false when one is already running.
+	pub fn begin_scan(&mut self) -> bool {
 		if self.scanning {
-			return Ok(self.discovered.clone());
+			return false;
 		}
 		self.scanning = true;
-		let result = discover(timeout);
+		true
+	}
+
+	/// Apply the result of a background scan.
+	pub fn finish_scan(&mut self, result: &Result<Vec<DiscoveredDevice>>) {
 		self.scanning = false;
-		match &result {
+		match result {
 			Ok(found) => {
 				self.discovered = found.clone();
 				self.error = None;
 			}
 			Err(error) => self.error = Some(error.to_string()),
 		}
+	}
+
+	pub fn scan(&mut self, timeout: Duration) -> Result<Vec<DiscoveredDevice>> {
+		if !self.begin_scan() {
+			return Ok(self.discovered.clone());
+		}
+		let result = discover(timeout);
+		self.finish_scan(&result);
 		result
 	}
 
@@ -956,10 +987,28 @@ pub fn cancel_target(target: &DeviceTarget, options: ClientOptions) -> Result<()
 	client_for_target(target, options).cancel_pulse()
 }
 
-struct Fetched {
-	name: String,
-	snapshot: Result<Snapshot>,
-	power_on: Option<PowerOnSettings>,
+/// A snapshot claimed for a background refresh.
+pub struct RefreshPlan {
+	targets: Vec<LightDevice>,
+	revisions: HashMap<String, u64>,
+	options: ClientOptions,
+}
+
+impl RefreshPlan {
+	pub fn revisions(&self) -> &HashMap<String, u64> {
+		&self.revisions
+	}
+
+	/// Fetch every target in parallel. Run this off the command thread.
+	pub fn execute(&self) -> Vec<Fetched> {
+		parallel_map(&self.targets, |device| fetch(device, self.options))
+	}
+}
+
+pub struct Fetched {
+	pub name: String,
+	pub snapshot: Result<Snapshot>,
+	pub power_on: Option<PowerOnSettings>,
 }
 
 fn fetch(device: &LightDevice, options: ClientOptions) -> Fetched {
@@ -1000,7 +1049,7 @@ where
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use elopli_core::{AccessoryInfo, WifiInfo};
+	use elopli_core::{AccessoryInfo, LightState, Snapshot, WifiInfo};
 	use std::net::Ipv4Addr;
 
 	fn device(name: &str, host: &str, port: u16) -> LightDevice {
@@ -1098,6 +1147,115 @@ mod tests {
 		assert_eq!(rows[3].name, "New");
 
 		session.error = None;
+	}
+
+	fn accessory_info() -> AccessoryInfo {
+		AccessoryInfo {
+			product_name: "Elgato Key Light".to_string(),
+			display_name: "Left".to_string(),
+			firmware_version: "1.0.3".to_string(),
+			firmware_build_number: 222,
+			hardware_board_type: 53,
+			wifi: Some(WifiInfo {
+				ssid: "test".to_string(),
+				frequency_mhz: 2400,
+				rssi: -40,
+			}),
+		}
+	}
+
+	fn refresh_session() -> Session {
+		let path = std::env::temp_dir().join(format!(
+			"elopli-refresh-{}-{}.json",
+			std::process::id(),
+			std::time::SystemTime::now()
+				.duration_since(std::time::UNIX_EPOCH)
+				.map(|duration| duration.as_nanos())
+				.unwrap_or_default()
+		));
+		let mut config = Config::new(path.clone());
+		config
+			.add(Device {
+				name: "Left".to_string(),
+				host: "192.0.2.10".to_string(),
+				port: 9123,
+			})
+			.unwrap();
+		config.save().unwrap();
+		Session {
+			config,
+			devices: vec![device("Left", "192.0.2.10", 9123)],
+			revisions: HashMap::new(),
+			links: LinkGraph::default(),
+			links_path: path.with_file_name("links.json"),
+			options: ClientOptions::default(),
+			pulsing: HashSet::new(),
+			live_brightness: HashMap::new(),
+			live_warmth: HashMap::new(),
+			live_at: HashMap::new(),
+			sliders: SliderQueue::default(),
+			discovered: Vec::new(),
+			error: None,
+			refreshing: false,
+			scanning: false,
+		}
+	}
+
+	#[test]
+	fn refresh_plan_applies_results_and_clears_the_flag() {
+		let mut session = refresh_session();
+		let plan = session.begin_refresh().unwrap();
+		assert!(session.refreshing());
+		let fetched = vec![Fetched {
+			name: "Left".to_string(),
+			snapshot: Ok(Snapshot {
+				state: LightState {
+					on: true,
+					brightness: 42,
+					temperature: 300,
+				},
+				info: accessory_info(),
+			}),
+			power_on: None,
+		}];
+		let revisions = plan.revisions().clone();
+		session.finish_refresh(&revisions, fetched);
+		assert!(!session.refreshing());
+		assert_eq!(session.devices()[0].state.unwrap().brightness, 42);
+	}
+
+	#[test]
+	fn a_refresh_result_is_ignored_after_a_local_write() {
+		let mut session = refresh_session();
+		let plan = session.begin_refresh().unwrap();
+		let revisions = plan.revisions().clone();
+		session.touch(&["Left".to_string()]);
+		session.finish_refresh(
+			&revisions,
+			vec![Fetched {
+				name: "Left".to_string(),
+				snapshot: Ok(Snapshot {
+					state: LightState {
+						on: true,
+						brightness: 42,
+						temperature: 300,
+					},
+					info: accessory_info(),
+				}),
+				power_on: None,
+			}],
+		);
+		assert!(session.devices()[0].state.is_none());
+		assert!(!session.refreshing());
+	}
+
+	#[test]
+	fn only_one_refresh_can_be_claimed() {
+		let mut session = refresh_session();
+		assert!(session.begin_refresh().is_some());
+		assert!(session.begin_refresh().is_none());
+		session.finish_refresh(&HashMap::new(), Vec::new());
+		assert!(session.begin_refresh().is_some());
 	}
 
 	#[test]

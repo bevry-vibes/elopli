@@ -9,7 +9,7 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
-elopli-core = { path = "../elopli-core" }
+elopli-core = { version = "0.1.0", path = "../elopli-core" }
 serde.workspace = true
 serde_json.workspace = true
 
