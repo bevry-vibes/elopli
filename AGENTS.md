@@ -35,5 +35,10 @@ this process is documented in the upstream repo's [local tweaks pattern](https:/
 - The Windows app uses Win32, a notification-area icon, and a GDI+ panel. It calls `elopli-core` and `elopli-session` directly.
 - Build the Windows app with `cargo build -p elopli-app --features windows --release` or `./scripts/build-windows.ps1`.
 - The Windows app crate is the only crate that allows `unsafe_code`; keep the unsafe blocks at the Win32 boundary.
-- Do not commit `dist/`; the Windows build script writes packages and checksums there.
+- The Linux app uses GTK4, a `ksni` StatusNotifierItem, and the shared `elopli-session`. It calls `elopli-core` and `elopli-session` directly.
+- Build the Linux app with `cargo build -p elopli-app-linux --features linux --release` or `./scripts/build-linux.sh`.
+- Keep the Linux app safe Rust; it inherits the workspace's `unsafe_code = "forbid"`.
+- Do not commit `dist/`; the Windows and Linux build scripts write packages and checksums there.
+- The light's display name is authoritative. The registry key mirrors it, and link groups migrate when a name changes; do not add per-interface nicknames.
+- Update [docs/linux.md](docs/linux.md) when Linux build, packaging, tray, or Wayland behaviour changes.
 - Keep the Rust core and session layer free of UI and platform code. The CLI and the apps are thin wrappers.

@@ -19,6 +19,10 @@ The format follows Keep a Changelog, and the project uses semantic versioning.
 - A Windows app CI job and `scripts/build-windows.ps1`.
 - Ctrl-click linking and `links.json` persistence on Windows.
 - A hidden-by-default serial tooltip on the Windows card model name; serials stay in memory and are never persisted or logged.
+- A native Linux GTK4 tray panel with cards, custom-drawn sliders, Ctrl-click linking, pulse and sweep sheets, discovery, dark/light themes, single instance, and XDG autostart.
+- A Linux portable tarball build with a desktop entry, AppStream metadata, hicolor icons, checksums, and an optional AppImage.
+- A Linux app CI job on Ubuntu 24.04.
+- A Wayland-safe `ELOPLI_SCREENSHOT` render hook for panel visual checks.
 
 ### Changed
 
@@ -33,6 +37,8 @@ The format follows Keep a Changelog, and the project uses semantic versioning.
 - Accessibility and localization are explicitly deferred until after v1.
 - Windows refresh and discovery run off the command thread so offline lights cannot starve UI actions.
 - Newly discovered lights use the device display name when it is unique; a duplicate display name falls back to the mDNS instance.
+- The light display name is now authoritative across interfaces: rename updates the registry key and link groups, refresh adopts a name changed elsewhere, and the CLI `rename` and `discover --write` follow the same rule.
+- The Linux header uses the macOS and Windows icon order: Refresh, Discover, All On, All Off, Settings.
 - The Windows panel uses Fluent UI System Icons, double-buffered painting, overlay sheets, field-anchored tooltips, and macOS-style tapered slider tracks and thumbs.
 - mDNS picks a deterministic private IPv4 address and surfaces browse failures.
 - The workspace version in `Cargo.toml` is the single version source for both apps.

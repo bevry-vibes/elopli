@@ -2,7 +2,7 @@
 
 Assisted-by: OpenCode · DeepSeek V4.1 Flash <opencode-opencodego-deepseekv41flash@local>
 
-**Status:** evergreen design reference · last agreed 2026-11-26 · product name: Elopli · core: Rust · UIs: macOS SwiftUI, Windows Win32/GDI+.
+**Status:** evergreen design reference · last revised 2026-11-26 · product name: Elopli · core: Rust · UIs: macOS SwiftUI, Windows Win32/GDI+, Linux GTK4.
 
 This document records what is true now, why it is true, and what would make us revisit it.
 It is not a changelog.
@@ -44,15 +44,15 @@ Non-goals:
 | Rust to Swift bridge | UniFFI | Generated bindings keep the boundary explicit. |
 | Shared session layer | Rust `elopli-session` | Grouping, refresh revisions, slider coalescing, discovery rows, and animation hand-off live in one place. |
 | Windows UI | Rust with the `windows` crate, Win32 tray/popup, and GDI+ panel rendering | Native tray app with no runtime dependency. Direct2D HWND targets did not present on the Windows 11 test machine; GDI+ is the reliable v1 renderer. |
-| Linux UI | Rust with `gtk4-rs` and `ksni` | Planned; GNOME needs the AppIndicator extension. |
-| Linux packaging | AppImage built with `appimagetool`/`linuxdeploy`, distributed through Soar | Flatpak is shelved. |
+| Linux UI | Rust with `gtk4-rs` and `ksni` | Native StatusNotifierItem tray panel; GTK4 matches the desktop theme and keeps the AppImage dependency set small. GNOME needs the AppIndicator extension. |
+| Linux packaging | Portable tarball; AppImage built with `appimagetool` when available, distributed through Soar | Flatpak is shelved. The tarball keeps Fedora builds usable before the AppImage recipe is released. |
 | Windows packaging | Portable ZIP and a generated Scoop manifest | Inno Setup is shelved. Authenticode is optional. |
 | macOS signing | Apple Development team signing | App Intents do not register from an ad-hoc build. |
 
 The CLI is a thin wrapper around the core.
 The core owns validation, transport, discovery, registry persistence, and animation; it depends on platform services such as `dirs`, `mdns-sd`, file locks, and `curl` only through the transport layer.
 The session layer owns grouping, live slider writes, config reloads, refresh revisions, discovery presentation, and animation state.
-The Windows app renders a `SessionSnapshot` and sends commands to a worker thread.
+The Windows and Linux apps render a `SessionSnapshot` and send commands to a worker thread.
 The macOS app still keeps its Swift session layer; migrating it to `elopli-session` is an open item.
 A UI may present state, but it must not implement protocol rules of its own.
 
@@ -120,6 +120,23 @@ The device registry is written atomically under a file lock.
 Each load records a fingerprint; a save fails with `config_conflict` if another process changed the file first.
 The app reloads the registry while it polls, and the CLI reports an absolute `config path`.
 The loader accepts a UTF-8 BOM and validates duplicate names and hosts case-insensitively.
+
+### Device names
+
+The light's own `displayName` is the authoritative, user-visible name.
+Rename writes it to the light, so it follows the hardware to every interface and operating system.
+
+The registry `name` is an internal identity, not a nickname.
+It keys link groups, registry matching, and CLI targeting.
+The session keeps it equal to the remote display name:
+
+- a successful rename updates the registry key and migrates link groups;
+- a refresh adopts a display name changed by another interface;
+- discovery uses the display name when the light has one;
+- a light with no display name falls back to its mDNS instance name until it is renamed.
+
+This rule avoids the old failure where each interface invented its own local names and the same light appeared as different lights.
+Duplicate remote names are allowed by the device; the session adopts the first and keeps the existing local key for later duplicates so the registry stays unique.
 
 ## 5. Fade and animation design
 
@@ -385,6 +402,20 @@ The group actions run the same animation on every member of the group.
 - The release executable is a GUI-subsystem binary; the debug build keeps a console for `--smoke-test`.
 - The version resource comes from `Cargo.toml`, the build number from the Git commit count.
 
+### 7.8 Linux tray app
+
+- Use GTK4 with a `GtkApplicationWindow`, a `GtkHeaderBar`, and `ksni` for the StatusNotifierItem.
+- The app owns the `com.bevry.elopli` D-Bus name; `GtkApplication` provides single-instance activation.
+- The tray menu carries Show Elopli, Refresh, All On, All Off, Discover Lights, Launch at Login, Reveal Config, and Quit Elopli.
+- Wayland does not let the app place a window, and GNOME has no layer-shell. The panel is a regular window opened from the tray menu, not a popover anchored to the icon.
+- Use Ctrl-click for links, matching Windows. Release Ctrl to commit.
+- Draw the brightness, warmth, and dual-handle pulse sliders with Cairo so the tapered track, warmth gradient, glow, and range handles match the other platforms.
+- Keep the session on a worker thread and update card widgets in place from snapshots.
+- Store `devices.json` and `links.json` under `~/.config/elopli`.
+- Launch at Login writes `~/.config/autostart/com.bevry.elopli.desktop`.
+- The app uses the native transport only and never falls back to `curl`.
+- `ELOPLI_SCREENSHOT` renders the panel to a PNG through the GTK render node, so visual checks work on Wayland without a screenshot portal.
+
 ## 8. Data and privacy
 
 - Discard the MAC address at parse time.
@@ -403,6 +434,9 @@ The group actions run the same animation on every member of the group.
 - Do not commit `apps/macos/Elopli/Generated`, `apps/macos/Elopli/build`, or `apps/macos/Elopli/Elopli.xcodeproj`.
 - Build the Windows app with `cargo build -p elopli-app --features windows --release`.
 - Package Windows with `./scripts/build-windows.ps1`; it writes the portable ZIP, `SHA256SUMS`, and a Scoop manifest.
+- Build the Linux app with `cargo build -p elopli-app-linux --features linux --release`.
+- Package Linux with `./scripts/build-linux.sh`; it writes the portable tarball, `SHA256SUMS`, and an AppImage when `appimagetool` is available.
+- The Linux app needs `gtk4-devel` or `libgtk-4-dev`; GNOME needs the AppIndicator extension.
 - Sign Windows releases with Authenticode when a certificate is available.
 - The Rust core and session layer stay free of UI and platform code.
 - The CLI stays non-interactive and supports absolute paths and JSON output.
@@ -437,11 +471,14 @@ The group actions run the same animation on every member of the group.
 | D22 | Windows 10 1809+ x64 for v1 | Covers the Win32 APIs and DPI support in use without an ARM64 package. | Windows on ARM becomes a release requirement. |
 | D23 | Portable ZIP and Scoop for Windows | The platform plan elected ZIP/Scoop over Inno Setup; Authenticode is a release-time choice. | A signed installer or Store distribution becomes required. |
 | D24 | Windows app uses the native transport only | A persistent connection is a safety rule for animations, and a GUI process must not flash a console through `curl`. | The native transport cannot be made reliable on a supported Windows release. |
+| D25 | The light's display name is the authoritative name; the registry key mirrors it | Per-interface local nicknames made the same light appear under different names. The device name is the only name that follows the hardware. | The API stops exposing `displayName`, or users need silent per-machine aliases. |
+| D26 | Linux panel is a regular GTK4 window opened from the tray menu | Wayland forbids client-side placement and GNOME has no layer-shell, so a tray-anchored popover is not portable. | A supported Wayland protocol or a GNOME extension exposes tray anchoring. |
+| D27 | Linux single instance uses the `GtkApplication` D-Bus name | GApplication already forwards activation without a socket or lock file. | The app must run without a session bus. |
 
 ## 11. Open items
 
-- Linux UI with `gtk4-rs` and `ksni`.
-- AppImage packaging; Flatpak is shelved.
+- Linux interaction smoke test, packaging installation, Ubuntu 24.04 validation, and the AppImage release recipe; Flatpak is shelved.
+- Migrate the macOS session to the shared naming rule; its UI already shows the remote display name.
 - Windows Authenticode signing and a public Scoop bucket.
 - Windows ARM64.
 - A stable public repository remote for Elopli.

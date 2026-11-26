@@ -1,20 +1,22 @@
 # Elopli
 
 Elopli controls Elgato Key Light and Key Light Air devices over the local network.
-It has a native macOS menu-bar app, a native Windows tray app, a Rust CLI, and a shared Rust core.
+It has a native macOS menu-bar app, a native Windows tray app, a native Linux GTK4 tray panel, a Rust CLI, and a shared Rust core.
 
-The macOS and Windows interfaces show a card for each light.
+The macOS, Windows, and Linux interfaces show a card for each light.
 Each card has power, brightness, warmth, WiFi details, rename, and power-on behaviour.
 The macOS app has no Dock icon and no draggable window.
 The Windows app has no taskbar button.
-Both appear as a menu-bar or notification-area panel.
+The macOS and Windows apps appear as a menu-bar or notification-area panel.
+The Linux app uses a GTK4 window opened from a StatusNotifierItem tray icon.
 
 Evergreen design decisions are in [DESIGN.md](DESIGN.md).
 
 ## Status
 
 macOS and Windows are implemented.
-Fedora is planned with a native UI on the same Rust core.
+Linux is in progress: the native GTK4 panel runs on Fedora 45, reads three Key Lights over the shared session layer, and has tray, autostart, single-instance, discovery, and animation support.
+Full Linux interaction testing, packaging installation, and Ubuntu validation remain open.
 Accessibility and localization are planned after v1.
 
 Verified on:
@@ -69,7 +71,8 @@ The Windows app is a native tray panel with the same card layout, sheets, and li
 - mDNS discovery with Added, Missing, and address Update states.
 - Native Apple Shortcuts actions with a multi-select light picker and per-action icons.
 - Native Windows tray app with a dark and light theme, single instance, and Launch at Login.
-- Link lights or individual controls with Command-click on macOS or Ctrl-click on Windows.
+- Native Linux GTK4 tray panel with a dark and light theme, single instance, and XDG autostart.
+- Link lights or individual controls with Command-click on macOS or Ctrl-click on Windows and Linux.
 - Pulse brightness from the current value to a peak, then through peak-to-minimum cycles, then back to the original values.
   A count of 3 means three peak-to-minimum fades.
   The low defaults to 0% (off).
@@ -139,6 +142,13 @@ Windows app:
 - Rust 1.100
 - Visual Studio Build Tools 2022 with the Desktop development with C++ workload for an MSVC build
 - A MinGW-w64 GCC toolchain on `PATH` instead, for a local GNU build
+
+Linux app:
+
+- Fedora 45 or Ubuntu 24.04, x86_64 or aarch64
+- GTK 4.14 or later (`gtk4-devel` on Fedora, `libgtk-4-dev` on Ubuntu)
+- Rust 1.100
+- A StatusNotifierItem host; GNOME needs the AppIndicator extension
 
 CLI:
 
@@ -214,6 +224,30 @@ Press Esc to close a sheet or hide the panel.
 See [docs/windows.md](docs/windows.md) for firewall, mDNS, autostart, signing, and smoke-test notes.
 Use `-Toolchain 1.100.0-x86_64-pc-windows-gnu` with the build script for a local GNU build.
 
+## Build the Linux app
+
+```sh
+sudo dnf install gtk4-devel
+cargo build --locked -p elopli-app-linux --features linux --release
+./target/release/elopli-app
+```
+
+Build a portable tarball, checksums, and an AppImage when `appimagetool` is available:
+
+```sh
+./scripts/build-linux.sh
+```
+
+The app adds a lightbulb to the StatusNotifierItem tray.
+On GNOME, a single left click opens the tray menu, a double or middle click opens the panel, and a right click opens the menu.
+Open **Show Elopli** from the tray menu to show the panel.
+Other hosts, such as KDE, open the panel on a left click.
+Hold Ctrl and click a card, toggle, or slider to link lights; release Ctrl to apply.
+Drag a card by its grip to swap positions.
+Press Esc to close a sheet or hide the panel.
+
+See [docs/linux.md](docs/linux.md) for the Fedora and GNOME requirements, Wayland limitations, firewall, autostart, and smoke-test notes.
+
 ## Build the CLI
 
 ```sh
@@ -250,8 +284,14 @@ Run `elopli discover` to find devices.
 Run `elopli discover --write` to add them to the registry.
 Only devices that advertise an IPv4 address are written.
 
+The light's own display name is the authoritative name.
+Rename writes it to the light, and the registry key follows it, so every interface that sees the light uses the same name.
+The registry name is an internal identity for link groups and CLI targeting, not a separate nickname.
+A light with no display name falls back to its mDNS instance name until it is renamed.
+See [docs/linux.md](docs/linux.md#names) for the full rule.
+
 The CLI prefers `./devices.json` when it exists, so development and tests can use a local registry.
-The macOS app, its App Intents, and the Windows app always use the platform config path.
+The macOS app, its App Intents, the Windows app, and the Linux app always use the platform config path.
 Run `elopli config path` to see which file the CLI will use.
 The apps reload the registry every five seconds and detect conflicting writes.
 Link groups are stored in `links.json` beside the registry.
@@ -285,6 +325,7 @@ elopli config path
 elopli config show
 ```
 
+`rename` writes the name to the light and updates the registry key, so the CLI, the apps, and every other interface use the same name.
 Durations accept a bare number as seconds, or a unit: `s`, `ms`, `m`, or `h`.
 The pulse and sweep default is `1.0s`; the maximum is one hour.
 
@@ -346,8 +387,17 @@ cargo build --locked -p elopli-app --features windows --release
 cargo clippy -p elopli-app --features windows --all-targets --locked -- -D warnings
 ```
 
+On Linux, build and lint the app with its feature enabled:
+
+```sh
+cargo build --locked -p elopli-app-linux --features linux --release
+cargo clippy -p elopli-app-linux --features linux --all-targets --locked -- -D warnings
+cargo test -p elopli-app-linux --features linux --locked
+```
+
 The macOS app is in `apps/macos/Elopli`.
 The Windows app is in `apps/windows/Elopli`.
+The Linux app is in `apps/linux/Elopli`.
 The shared core is in `crates/elopli-core`.
 The shared session layer is in `crates/elopli-session`.
 The UniFFI bridge is in `crates/elopli-ffi`.
