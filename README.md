@@ -120,6 +120,7 @@ That is required for native App Intents.
 Without it, the build is ad-hoc and App Intents do not register.
 
 The script builds the Rust FFI library, generates the UniFFI Swift bindings, generates the Xcode project, and builds the app.
+Debug builds set `ENABLE_DEBUG_DYLIB = NO` so Shortcuts can load the App Intents from the main executable; an `Elopli.debug.dylib` stub hides them from Shortcuts.
 The app has no Dock icon.
 Click the lightbulb in the menu bar.
 

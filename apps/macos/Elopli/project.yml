@@ -40,6 +40,9 @@ targets:
           - -lelopli_ffi
           - -liconv
           - -lresolv
+      configs:
+        Debug:
+          ENABLE_DEBUG_DYLIB: NO
     dependencies:
       - framework: AppIntents.framework
         embed: false
