@@ -13,6 +13,11 @@ enum IntentError: Error, LocalizedError {
 
 struct ElopliLightEntity: AppEntity, Hashable {
 	static let allID = "all"
+	static let all = ElopliLightEntity(
+		id: allID,
+		name: "All Lights",
+		detail: "Every configured light"
+	)
 
 	static var typeDisplayRepresentation = TypeDisplayRepresentation(
 		name: "Elopli Light"
@@ -41,18 +46,13 @@ struct ElopliLightQuery: EntityQuery {
 	}
 
 	func defaultResult() async -> ElopliLightEntity? {
-		try? Self.allEntities().dropFirst().first
+		try? Self.allEntities().first
 	}
 
 	private static func allEntities() throws -> [ElopliLightEntity] {
 		let config = try FfiConfig.load(path: nil)
 		let devices = try config.devices()
-		let all = ElopliLightEntity(
-			id: ElopliLightEntity.allID,
-			name: "All Lights",
-			detail: "Every configured light"
-		)
-		return [all] + devices.map { device in
+		return [.all] + devices.map { device in
 			ElopliLightEntity(
 				id: "device:\(device.name)",
 				name: device.name,
@@ -317,6 +317,10 @@ struct TurnOnIntent: AppIntent {
 	)
 	var lights: [ElopliLightEntity]
 
+	static var parameterSummary: some ParameterSummary {
+		Summary("Turn \(\.$lights) on")
+	}
+
 	func perform() async throws -> some IntentResult & ProvidesDialog {
 		let devices = try IntentSupport.devices(from: lights)
 		let results = await IntentSupport.runEach(devices) { _, client in
@@ -345,6 +349,10 @@ struct TurnOffIntent: AppIntent {
 	)
 	var lights: [ElopliLightEntity]
 
+	static var parameterSummary: some ParameterSummary {
+		Summary("Turn \(\.$lights) off")
+	}
+
 	func perform() async throws -> some IntentResult & ProvidesDialog {
 		let devices = try IntentSupport.devices(from: lights)
 		let results = await IntentSupport.runEach(devices) { _, client in
@@ -372,6 +380,10 @@ struct ToggleIntent: AppIntent {
 		description: "Select one or more lights, or All Lights."
 	)
 	var lights: [ElopliLightEntity]
+
+	static var parameterSummary: some ParameterSummary {
+		Summary("Toggle \(\.$lights)")
+	}
 
 	func perform() async throws -> some IntentResult & ProvidesDialog {
 		let devices = try IntentSupport.devices(from: lights)
@@ -407,6 +419,10 @@ struct SetBrightnessIntent: AppIntent {
 		default: 50
 	)
 	var brightness: Int
+
+	static var parameterSummary: some ParameterSummary {
+		Summary("Set \(\.$lights) to \(\.$brightness)% brightness")
+	}
 
 	func perform() async throws -> some IntentResult & ProvidesDialog {
 		let value = UInt8(max(2, min(100, brightness)))
@@ -444,6 +460,10 @@ struct SetWarmthIntent: AppIntent {
 	)
 	var warmth: Int
 
+	static var parameterSummary: some ParameterSummary {
+		Summary("Set \(\.$lights) to \(\.$warmth)% warmth")
+	}
+
 	func perform() async throws -> some IntentResult & ProvidesDialog {
 		let value = UInt8(max(0, min(100, warmth)))
 		let devices = try IntentSupport.devices(from: lights)
@@ -472,6 +492,10 @@ struct GetStateIntent: AppIntent {
 		description: "Select one or more lights, or All Lights."
 	)
 	var lights: [ElopliLightEntity]
+
+	static var parameterSummary: some ParameterSummary {
+		Summary("Get state of \(\.$lights)")
+	}
 
 	func perform() async throws -> some IntentResult & ProvidesDialog {
 		let devices = try IntentSupport.devices(from: lights)
@@ -502,6 +526,10 @@ struct RenameIntent: AppIntent {
 
 	@Parameter(title: "New Name")
 	var newName: String
+
+	static var parameterSummary: some ParameterSummary {
+		Summary("Rename \(\.$light) to \(\.$newName)")
+	}
 
 	func perform() async throws -> some IntentResult & ProvidesDialog {
 		guard light.id != ElopliLightEntity.allID else {
@@ -588,6 +616,10 @@ struct PulseIntent: AppIntent {
 	)
 	var low: Int
 
+	static var parameterSummary: some ParameterSummary {
+		Summary("Pulse \(\.$lights) \(\.$count) times for \(\.$duration)")
+	}
+
 	func perform() async throws -> some IntentResult & ProvidesDialog {
 		let devices = try IntentSupport.devices(from: lights)
 		let count = UInt32(max(1, min(20, count)))
@@ -653,6 +685,10 @@ struct SweepLightIntent: AppIntent {
 	)
 	var brightness: Int
 
+	static var parameterSummary: some ParameterSummary {
+		Summary("Sweep \(\.$lights) \(\.$count) times for \(\.$duration)")
+	}
+
 	func perform() async throws -> some IntentResult & ProvidesDialog {
 		let devices = try IntentSupport.devices(from: lights)
 		let count = UInt32(max(1, min(20, count)))
@@ -711,6 +747,10 @@ struct SetPowerOnIntent: AppIntent {
 		default: 35
 	)
 	var warmth: Int
+
+	static var parameterSummary: some ParameterSummary {
+		Summary("Set power-on for \(\.$lights) to \(\.$behavior)")
+	}
 
 	func perform() async throws -> some IntentResult & ProvidesDialog {
 		let devices = try IntentSupport.devices(from: lights)
