@@ -136,3 +136,7 @@ Answer: no. Plain GTK4 is sufficient for this delivery.
 > increae the weight/boldness of the light names
 
 > make it 800, 700 was not a noticeable improvement
+
+> bring the wifi icon closer, so their borders on hover are the same distance
+
+> now that you fixzed the emphasis, reduce the bold back to 600 so I can see it
