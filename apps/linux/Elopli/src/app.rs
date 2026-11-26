@@ -117,7 +117,8 @@ impl App {
 		title.set_xalign(0.0);
 		title.set_valign(gtk::Align::Center);
 		title.set_margin_start(4);
-		title.set_margin_top(6);
+		title.set_margin_top(2);
+		title.set_margin_bottom(3);
 		header.pack_start(&title);
 		window.set_titlebar(Some(&header));
 
@@ -967,13 +968,13 @@ impl Card {
 			.build();
 		wifi.add_css_class("flat");
 		wifi.set_size_request(30, 30);
-		wifi.set_margin_end(2);
+		wifi.set_margin_end(10);
 		wifi.set_valign(gtk::Align::Center);
 		top.append(&wifi);
 
 		let power_wrap = gtk::Box::new(gtk::Orientation::Horizontal, 0);
 		power_wrap.add_css_class("elopli-field");
-		power_wrap.set_margin_end(2);
+		power_wrap.set_margin_end(5);
 		power_wrap.set_valign(gtk::Align::Center);
 		let power = gtk::Switch::new();
 		power.set_valign(gtk::Align::Center);
@@ -1024,7 +1025,8 @@ impl Card {
 			.tooltip_text("Light menu")
 			.build();
 		menu.add_css_class("flat");
-		menu.set_size_request(28, 30);
+		menu.add_css_class("elopli-menu");
+		menu.set_size_request(30, 30);
 		menu.set_direction(gtk::ArrowType::None);
 		menu.set_valign(gtk::Align::Center);
 		top.append(&menu);
