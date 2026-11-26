@@ -44,7 +44,7 @@ switch:checked slider {
 menubutton.elopli-menu > button:not(:hover):not(:active):not(:checked):not(:focus) {
     background: none;
     background-image: none;
-    border: none;
+    border: 1px solid transparent;
     box-shadow: none;
 }
 

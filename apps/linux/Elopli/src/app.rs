@@ -252,6 +252,7 @@ impl App {
 			.menu_model(&settings_menu)
 			.build();
 		settings.add_css_class("flat");
+		settings.add_css_class("elopli-menu");
 		settings.set_size_request(30, 30);
 		settings.set_direction(gtk::ArrowType::None);
 
@@ -971,13 +972,13 @@ impl Card {
 			.build();
 		wifi.add_css_class("flat");
 		wifi.set_size_request(30, 30);
-		wifi.set_margin_end(7);
+		wifi.set_margin_end(11);
 		wifi.set_valign(gtk::Align::Center);
 		top.append(&wifi);
 
 		let power_wrap = gtk::Box::new(gtk::Orientation::Horizontal, 0);
 		power_wrap.add_css_class("elopli-field");
-		power_wrap.set_margin_end(7);
+		power_wrap.set_margin_end(5);
 		power_wrap.set_valign(gtk::Align::Center);
 		let power = gtk::Switch::new();
 		power.set_valign(gtk::Align::Center);
