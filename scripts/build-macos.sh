@@ -46,6 +46,8 @@ if [ -n "${DEVELOPMENT_TEAM:-}" ]; then
 		-scheme Elopli \
 		-configuration "$([ "$CONFIG" = "release" ] && echo Release || echo Debug)" \
 		-derivedDataPath build \
+		MARKETING_VERSION="$MARKETING_VERSION" \
+		CURRENT_PROJECT_VERSION="$CURRENT_PROJECT_VERSION" \
 		CODE_SIGN_STYLE=Automatic \
 		CODE_SIGN_IDENTITY="Apple Development" \
 		DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
@@ -58,6 +60,8 @@ elif [ -n "${SIGN_IDENTITY:-}" ]; then
 		-scheme Elopli \
 		-configuration "$([ "$CONFIG" = "release" ] && echo Release || echo Debug)" \
 		-derivedDataPath build \
+		MARKETING_VERSION="$MARKETING_VERSION" \
+		CURRENT_PROJECT_VERSION="$CURRENT_PROJECT_VERSION" \
 		CODE_SIGN_STYLE=Manual \
 		CODE_SIGN_IDENTITY="$SIGN_IDENTITY" \
 		DEVELOPMENT_TEAM="" \
@@ -69,6 +73,8 @@ else
 		-scheme Elopli \
 		-configuration "$([ "$CONFIG" = "release" ] && echo Release || echo Debug)" \
 		-derivedDataPath build \
+		MARKETING_VERSION="$MARKETING_VERSION" \
+		CURRENT_PROJECT_VERSION="$CURRENT_PROJECT_VERSION" \
 		CODE_SIGN_STYLE=Manual \
 		CODE_SIGN_IDENTITY="-" \
 		DEVELOPMENT_TEAM="" \

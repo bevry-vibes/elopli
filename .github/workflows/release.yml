@@ -1,0 +1,78 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to publish
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: windows
+    runs-on: windows-latest
+    env:
+      WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.100.0"
+      - uses: Swatinem/rust-cache@v2
+      - name: Resolve tag
+        id: tag
+        shell: pwsh
+        run: |
+          $tag = if ("${{ github.event_name }}" -eq "workflow_dispatch") { "${{ inputs.tag }}" } else { $env:GITHUB_REF_NAME }
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+      - name: Test
+        run: cargo test --workspace --locked
+      - name: Decode certificate
+        if: ${{ env.WINDOWS_CERTIFICATE_BASE64 != '' }}
+        shell: pwsh
+        run: |
+          [IO.File]::WriteAllBytes("certificate.pfx", [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_BASE64))
+      - name: Package
+        shell: pwsh
+        run: |
+          $arguments = @()
+          if (Test-Path certificate.pfx) {
+            $arguments += @(
+              "-CertificatePath", "certificate.pfx",
+              "-CertificatePassword", "${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}"
+            )
+          }
+          pwsh -NoProfile -File scripts/build-windows.ps1 @arguments
+      - name: Check release notes
+        shell: pwsh
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          $notes = git tag -l --format='%(contents)' $env:TAG
+          if ([string]::IsNullOrWhiteSpace($notes)) {
+            throw "tag $env:TAG has no release notes; annotate the tag before publishing"
+          }
+          $notes | Out-File -Encoding utf8 release-notes.md
+      - name: Publish
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          $assets = @(
+            (Get-ChildItem dist -Filter "Elopli-*-windows-x64.zip").FullName,
+            (Join-Path "dist" "SHA256SUMS"),
+            (Join-Path "dist" "elopli.json")
+          )
+          gh release create $env:TAG --title "$env:TAG — Windows app" --notes-file release-notes.md @assets
+          if ($LASTEXITCODE -ne 0) {
+            gh release upload $env:TAG @assets --clobber
+          }

@@ -30,6 +30,7 @@
 
 # Build Caches
 build/
+dist/
 bower_components/
 node_modules/
 .next/
@@ -50,6 +51,10 @@ apps/windows/Elopli/dist/
 *.msix
 *.appx
 *.zip
+
+# Signing material
+*.pfx
+certificate.pfx
 
 # =====================================
 # CUSTOM
